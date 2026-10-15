@@ -34,13 +34,23 @@
 
 本地钥匙串须有有效 Developer ID Application 证书，并已通过 `xcrun notarytool store-credentials` 保存公证凭据。用自己的证书名称与 profile 替换示例：
 
+先运行 `security find-identity -v -p codesigning`，确认存在有效 Developer ID Application 身份。仅安装 `.cer` 证书不够；签名还需要对应的私钥。迁移已有证书时，在本机“钥匙串访问”导入包含私钥的 `.p12`，密码只在本机输入。
+
+尚未保存公证凭据时，在本机终端运行以下命令，按照交互提示输入 Apple ID、Team ID 与 App 专用密码；不要把密码写进脚本、命令参数、聊天或仓库：
+
+```bash
+xcrun notarytool store-credentials oneact-notary
+```
+
+也可使用已保存的 App Store Connect API profile；仅需把 profile 名称传给发布脚本。
+
 ```bash
 CODESIGN_IDENTITY="Developer ID Application: YOUR NAME (TEAMID)" \
 NOTARY_PROFILE="your-notary-profile" \
 ./scripts/release.sh "本次版本说明"
 ```
 
-脚本提交公证、staple、验证后重新生成 zip。公证失败就停止；不会把失败结果标记为已公证。不要把证书、密码或私钥提交到仓库。
+脚本保存公证提交结果与日志，要求结果为 Accepted，然后 staple、验证票据并检查 Gatekeeper，最后重新生成 zip。公证失败就停止；不会把失败结果标记为已公证。不要把证书、密码或私钥提交到仓库。提交结果和日志只保留在被忽略的本地 `build/releases/` 目录。
 
 ## 发布到 GitHub
 

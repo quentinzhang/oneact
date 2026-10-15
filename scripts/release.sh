@@ -52,7 +52,18 @@ rm -f "$ZIP"
 ditto -c -k --keepParent build/OneAct.app "$ZIP"
 NOTARIZED=false
 if [ -n "${NOTARY_PROFILE:-}" ]; then
-  xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+  SUBMISSION="${OUTPUT}/notary-submission.json"
+  xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait \
+    --output-format json > "$SUBMISSION"
+  SUBMISSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$SUBMISSION")"
+  xcrun notarytool log "$SUBMISSION_ID" --keychain-profile "$NOTARY_PROFILE" "${OUTPUT}/notary-log.json"
+  python3 - "$SUBMISSION" <<'PY'
+import json, sys
+result = json.load(open(sys.argv[1]))
+if result.get("status") != "Accepted":
+    sys.exit("Apple did not accept the notarization; see the local notary log.")
+print("Apple notarization accepted: " + result["id"])
+PY
   xcrun stapler staple build/OneAct.app
   xcrun stapler validate build/OneAct.app
   spctl --assess --type execute build/OneAct.app
@@ -86,6 +97,10 @@ appcast = {
 signing = "Apple Developer ID signed and notarized." if notarized else (
     "Ad-hoc signed; NOT notarized by Apple." if os.environ["IDENTITY"] == "-" else
     "Developer ID signed; NOT notarized by Apple.")
+installation = "Apple notarization is complete and its ticket is stapled to the app." if notarized else (
+    "Unnotarized test builds may be blocked by macOS Gatekeeper. After verifying the source, "
+    "follow macOS Privacy & Security prompts to allow opening, or build from source. "
+    "Do not disable system security settings.")
 text = f"""## OneAct {version} — Beta
 
 {os.environ['NOTES']}
@@ -94,7 +109,7 @@ Requires an Apple Silicon Mac and macOS 15 or later.
 
 **Signing: {signing}**
 
-Unnotarized test builds may be blocked by macOS Gatekeeper. After verifying the source, follow macOS Privacy & Security prompts to allow opening, or build from source. Do not disable system security settings.
+{installation}
 
 Download `{name}`, unzip, and move `OneAct.app` to Applications. Verify the download with `shasum -a 256 -c SHA256SUMS`.
 

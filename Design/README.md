@@ -1,5 +1,11 @@
 # Website demo assets
 
+## Shared brand icon
+
+`Design/oneact-icon-b-spotlight.svg` is the canonical OneAct icon: coral `#e5484d`, warm ivory `#ffe9c4`, and dark navy `#171a26`. The application bundle, window header, Dock, Finder, website logo, and web icons share this artwork. The curtain SVG is an unused design alternative.
+
+Run `swift scripts/render-icons.swift` on macOS to regenerate `AppIcon.icns`, `website/assets/logo.svg`, and `website/assets/icon-256.png`. The script uses AppKit and `iconutil`, with no third-party dependencies. Then run `./scripts/package-app.sh` and `./scripts/render-demo.sh` to update the app and its three website screenshots. OneAct loads the bundled icon at launch so its Dock and header use the current artwork even when macOS has cached an older version.
+
 The website provides three switchable previews, rendered by OneAct's actual AppKit interface with fictional scenes inside the preview canvas. No real-person footage or private screen content is used.
 
 | Preview | Screenshot | Canvas fixture |

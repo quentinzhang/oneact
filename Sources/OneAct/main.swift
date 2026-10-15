@@ -1542,6 +1542,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appliedCanvas = CanvasOptions.defaultPreset
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Read the bundle resource directly so macOS's icon cache cannot leave
+        // the Dock or window header displaying a previous release's artwork.
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+        }
         if !isLayoutReport, activateExistingInstance() { return }
         buildMainMenu()
         recorder = Recorder(previewLayer: previewView.previewLayer)
@@ -3612,6 +3618,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             demoView.imageScaling = .scaleProportionallyUpOrDown
             demoView.autoresizingMask = [.width, .height]
             previewView.addSubview(demoView)
+            stageBackdropDots?.alphaValue = 0
             statusLabel.stringValue = "Demo scene · illustrated presenter · no live capture"
         }
         if CommandLine.arguments.contains("--prompter") {
