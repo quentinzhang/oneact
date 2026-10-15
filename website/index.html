@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OneAct — One stage. One take.</title>
-<meta name="description" content="Your story, in one take. OneAct is a native macOS recorder: what you see is what you save. Pause, breathe, and resume in one video, with a teleprompter and optional screen sharing.">
+<meta name="description" content="One stage. One take. OneAct is a native Mac recorder: what you see is what you save. Live composition, a built-in teleprompter, pause and resume, and optional screen sharing.">
 <link rel="canonical" href="https://quentinzhang.github.io/oneact/">
 <link rel="icon" href="assets/logo.svg?v=coral" type="image/svg+xml">
 <link rel="icon" href="assets/icon-256.png?v=coral" type="image/png">
@@ -39,29 +39,11 @@
     outline: 2px solid var(--rec); outline-offset: 5px;
   }
   .source-link { font-size: 14px; }
-  .install-note { max-width: 620px; font-size: 13px; color: var(--muted); }
-  .install-note strong { color: var(--text); }
 
   .hero { padding: 72px 0 64px; text-align: center; }
   .hero h1 { font-size: clamp(36px, 6vw, 60px); font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
   .hero h1 .act { color: var(--rec); }
   .hero .tagline { max-width: 700px; margin: 20px auto 0; font-size: clamp(17px, 2.6vw, 21px); color: var(--muted); }
-  .hero .sub { max-width: 680px; margin: 10px auto 0; font-size: 15px; color: var(--muted); }
-  .hero .promise { margin-top: 18px; font-size: 17px; font-weight: 600; }
-
-  .pause-spotlight {
-    max-width: 880px; margin: 56px auto 0; padding: 30px;
-    background: linear-gradient(135deg, #2b1c22, var(--panel));
-    border: 1px solid #603039; border-radius: 18px; text-align: left;
-  }
-  .pause-spotlight .eyebrow { color: #ff9b9e; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
-  .pause-spotlight h2 { margin: 8px 0 12px; font-size: clamp(25px, 4vw, 32px); line-height: 1.2; letter-spacing: -0.02em; }
-  .pause-spotlight .pause-copy { max-width: 700px; color: var(--muted); font-size: 15px; }
-  .take-flow { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
-  .take-flow li { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink); }
-  .take-flow strong { display: block; font-size: 16px; }
-  .take-flow span { color: var(--muted); font-size: 13px; }
-  .pause-result { margin-top: 16px; font-size: 14px; }
 
   .cta { margin-top: 40px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
   .download {
@@ -105,9 +87,6 @@
   .shot figcaption p { font-size: 14px; color: var(--muted); }
   .demo-note { margin: 20px auto 0; font-size: 12px; color: var(--muted); }
   @media (max-width: 480px) {
-    .pause-spotlight { padding: 22px 18px; }
-    .take-flow { grid-template-columns: 1fr; gap: 8px; }
-    .take-flow li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
     .demo-tabs button { font-size: 12px; padding: 10px 4px; }
     .demo h2 { font-size: 22px; }
   }
@@ -140,30 +119,14 @@
 
     <section class="hero">
       <h1>One stage. <span class="act">One take.</span></h1>
-      <p class="tagline">Tell your story. See it come together as you record.</p>
-      <p class="promise">What you see is what you save.</p>
-      <p class="sub">A native Mac recorder with room to breathe. Pause when you need a moment, then carry on in the same video.</p>
+      <p class="tagline">A native Mac recorder. What you see is what you save.</p>
 
       <div class="cta">
         <a class="download" id="download-link" href="https://github.com/quentinzhang/oneact/releases/latest">
           <span class="rec" aria-hidden="true"></span><span id="download-label">Download on GitHub</span>
         </a>
         <span class="meta" id="download-meta">Requires macOS 15 or later · Apple Silicon · Beta</span>
-        <p class="install-note" id="signing-note">See the release notes for signing status and installation instructions. Unzip the download and move OneAct to Applications.</p>
-        <a class="source-link" href="https://github.com/quentinzhang/oneact/releases/latest">Release notes &amp; checksums</a>
       </div>
-
-      <section class="pause-spotlight" aria-labelledby="pause-title">
-        <p class="eyebrow">Pause &amp; resume</p>
-        <h2 id="pause-title">Pause. Breathe. Carry on.</h2>
-        <p class="pause-copy">Take a sip of water. Gather your thoughts. Set up the next shot. Pause your recording, then resume when you're ready. You can reframe or switch between Camera and Screen + Camera while paused; your teleprompter pauses and resumes with you.</p>
-        <ol class="take-flow" aria-label="One recording, at your own pace">
-          <li><strong>Record</strong><span>Let the story begin.</span></li>
-          <li><strong>Pause</strong><span>Take your moment.</span></li>
-          <li><strong>Resume</strong><span>Pick up the thread.</span></li>
-        </ol>
-        <p class="pause-result">One continuous video. The paused time stays out of the finished recording.</p>
-      </section>
 
       <section class="demo" id="demo" aria-labelledby="demo-title">
         <h2 id="demo-title">Give your story the space it needs.</h2>
@@ -208,12 +171,12 @@
       <h2>Made for the way you tell a story.</h2>
       <div class="grid">
         <div class="card">
-          <h3>See it. Shape it. Save it.</h3>
-          <p>Your canvas comes together live: framing, backgrounds, and camera placement are already part of the video when you stop recording.</p>
+          <h3>What you see is what you save</h3>
+          <p>Compose your shot with live framing, backgrounds, picture-in-picture, or person cutout. Your canvas becomes the finished video.</p>
         </div>
         <div class="card">
-          <h3>Make the shot yours</h3>
-          <p>Give yourself the whole frame, settle into a picture-in-picture, or use person cutout. Choose your canvas shape, background, and camera position.</p>
+          <h3>Pause &amp; resume</h3>
+          <p>Pause for a moment, reframe if you need to, and resume in the same recording. Paused time stays out of your video.</p>
         </div>
         <div class="card">
           <h3>A little help with your words</h3>
@@ -236,7 +199,7 @@
 
     <footer>
       <p>© 2026 OneAct</p>
-      <p><a href="https://github.com/quentinzhang/oneact">Source code</a> · <a href="https://github.com/quentinzhang/oneact/issues">Report an issue</a> · <a href="https://github.com/quentinzhang/oneact/blob/main/LICENSE">GPL-3.0</a></p>
+      <p><a href="https://github.com/quentinzhang/oneact">Source code</a> · <a href="https://github.com/quentinzhang/oneact/releases/latest">Release notes</a> · <a href="https://github.com/quentinzhang/oneact/issues">Report an issue</a> · <a href="https://github.com/quentinzhang/oneact/blob/main/LICENSE">GPL-3.0</a></p>
       <p class="fine">Recording stays on your Mac. Version checks connect to GitHub Pages; downloads are hosted on GitHub Releases.</p>
     </footer>
   </div>
@@ -297,9 +260,6 @@
         document.getElementById('download-label').textContent = 'Download OneAct for macOS';
         document.getElementById('download-meta').textContent =
           'v' + a.version + ' · Requires macOS 15 or later · Apple Silicon · Beta';
-        document.getElementById('signing-note').textContent = a.notarized === true
-          ? 'Developer ID signed and notarized by Apple. Unzip and move OneAct to Applications.'
-          : 'This beta is not notarized by Apple and may be blocked by macOS. After verifying the source, follow Privacy & Security prompts to allow opening, or build from source.';
       })
       .catch(function () { /* keep the baked-in fallback */ });
   </script>
