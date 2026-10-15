@@ -1,0 +1,24 @@
+name: Build and self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build application bundle
+        run: ./scripts/package-app.sh
+      - name: Verify H.264 and ProRes recording pipelines
+        run: |
+          BIN_PATH="$(swift build -c release --show-bin-path)"
+          "$BIN_PATH/OneAct" --self-test "$RUNNER_TEMP/oneact-h264.mov"
+          "$BIN_PATH/OneAct" --self-test "$RUNNER_TEMP/oneact-prores.mov" --prores

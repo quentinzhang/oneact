@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OneAct — One stage. One take.</title>
+<meta name="description" content="OneAct is a native macOS recorder that composites your screen and camera in real time — person cutout, built-in teleprompter, and everything stays on your Mac.">
+<link rel="canonical" href="https://quentinzhang.github.io/oneact/">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="icon" href="assets/icon-256.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon-256.png">
+<style>
+  :root {
+    --ink: #101014;
+    --panel: #1a1a20;
+    --line: #2a2a32;
+    --text: #f0f0f2;
+    --muted: #9a9aa4;
+    --rec: #e5484d;
+    --rec-dim: #b83a3e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--ink);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  header { padding: 28px 0; display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: 0.02em; }
+  .brand img { width: 26px; height: 26px; display: block; }
+  header .ver { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  a { color: var(--text); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--rec); outline-offset: 5px; }
+  .source-link { font-size: 14px; }
+  .install-note { max-width: 620px; font-size: 13px; color: var(--muted); }
+  .install-note strong { color: var(--text); }
+
+  .hero { padding: 72px 0 64px; text-align: center; }
+  .hero h1 { font-size: clamp(36px, 6vw, 60px); font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
+  .hero h1 .act { color: var(--rec); }
+  .hero .tagline { margin-top: 20px; font-size: clamp(17px, 2.6vw, 21px); color: var(--muted); }
+  .hero .sub { margin-top: 10px; font-size: 15px; color: var(--muted); }
+
+  .cta { margin-top: 40px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .download {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--rec); color: #fff; text-decoration: none;
+    font-size: 17px; font-weight: 600;
+    padding: 14px 34px; border-radius: 999px;
+    transition: background 0.15s ease;
+  }
+  .download:hover { background: var(--rec-dim); }
+  .download .rec { width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+  .cta .meta { font-size: 13px; color: var(--muted); }
+
+  .shot {
+    margin: 56px auto 0; max-width: 880px;
+  }
+  .shot img {
+    display: block; width: 100%; height: auto;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  }
+  .shot figcaption { margin-top: 14px; font-size: 13px; color: var(--muted); }
+
+  section.features { padding: 80px 0; }
+  .features h2 { font-size: 26px; margin-bottom: 28px; text-align: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px;
+  }
+  .card h3 { font-size: 16px; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--muted); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 28px 0 40px; text-align: center;
+    color: var(--muted); font-size: 13px;
+  }
+  footer .fine { margin-top: 6px; font-size: 12px; opacity: 0.75; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand"><img src="assets/logo.svg" alt="">OneAct</div>
+      <span class="ver" id="header-version">Open source · GPL-3.0</span>
+      <a class="source-link" href="https://github.com/quentinzhang/oneact">GitHub ↗</a>
+    </header>
+
+    <section class="hero">
+      <h1>One stage. <span class="act">One take.</span></h1>
+      <p class="tagline">A native macOS recorder that composites your screen and camera in real time.</p>
+      <p class="sub">Person cutout · Built-in teleprompter · Everything stays on your Mac</p>
+
+      <div class="cta">
+        <a class="download" id="download-link" href="https://github.com/quentinzhang/oneact/releases/latest">
+          <span class="rec" aria-hidden="true"></span><span id="download-label">Download on GitHub</span>
+        </a>
+        <span class="meta" id="download-meta">Requires macOS 15 or later · Apple Silicon · Beta</span>
+        <p class="install-note" id="signing-note">See the release notes for signing status and installation instructions. Unzip the download and move OneAct to Applications.</p>
+        <a class="source-link" href="https://github.com/quentinzhang/oneact/releases/latest">Release notes &amp; checksums</a>
+      </div>
+
+      <figure class="shot">
+        <img src="assets/hero.png" alt="OneAct recording workspace with a preview canvas and controls for the screen, camera overlay, output format, and canvas size.">
+        <figcaption>The whole app: one canvas, one control panel, one Record button.</figcaption>
+      </figure>
+    </section>
+
+    <section class="features">
+      <h2>Built for recording in one take</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Screen + camera compositing</h3>
+          <p>ScreenCaptureKit captures a display, app, or window; your camera overlays as picture-in-picture. What you see is exactly what you record.</p>
+        </div>
+        <div class="card">
+          <h3>Person cutout</h3>
+          <p>Rectangle, Circle, or Cutout overlay styles. Cutout uses Vision person segmentation to lift you out of the background, frame by frame.</p>
+        </div>
+        <div class="card">
+          <h3>Built-in teleprompter</h3>
+          <p>Edit your script above the preview canvas, scroll at your speaking pace, and start with a countdown. The script stays out of OneAct's composited video.</p>
+        </div>
+        <div class="card">
+          <h3>A canvas of your own</h3>
+          <p>Landscape or portrait ratios, Fit / Fill / Blur layouts, any canvas color. Drag the picture-in-picture wherever you want it.</p>
+        </div>
+        <div class="card">
+          <h3>Local first</h3>
+          <p>Recording and compositing happen entirely on your Mac. No account, no cloud, no waiting for uploads.</p>
+        </div>
+        <div class="card">
+          <h3>Choose your recording format</h3>
+          <p>Use H.264 for compact everyday recordings, or ProRes 422 for editing. Both save a MOV file with AAC audio, with pause and resume built in.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>© 2026 OneAct</p>
+      <p><a href="https://github.com/quentinzhang/oneact">Source code</a> · <a href="https://github.com/quentinzhang/oneact/issues">Report an issue</a> · <a href="https://github.com/quentinzhang/oneact/blob/main/LICENSE">GPL-3.0</a></p>
+      <p class="fine">Recording stays on your Mac. Version checks connect to GitHub Pages; downloads are hosted on GitHub Releases.</p>
+    </footer>
+  </div>
+
+  <script>
+    // The appcast is the single source of truth for the released version;
+    // keep the page's version strings and download link in sync with it.
+    fetch('appcast.json', { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('No published release feed');
+        return r.json();
+      })
+      .then(function (a) {
+        var download = new URL(a.download);
+        if (download.origin !== 'https://github.com' ||
+            !download.pathname.startsWith('/quentinzhang/oneact/releases/download/')) {
+          throw new Error('Unexpected download URL');
+        }
+        document.getElementById('header-version').textContent = 'v' + a.version;
+        document.getElementById('download-link').setAttribute('href', download.href);
+        document.getElementById('download-label').textContent = 'Download OneAct for macOS';
+        document.getElementById('download-meta').textContent =
+          'v' + a.version + ' · Requires macOS 15 or later · Apple Silicon · Beta';
+        document.getElementById('signing-note').textContent = a.notarized === true
+          ? 'Signed and notarized by Apple. Unzip and move OneAct to Applications.'
+          : 'This beta is not notarized by Apple and may be blocked by macOS. After verifying the source, follow Privacy & Security prompts to allow opening, or build from source.';
+      })
+      .catch(function () { /* keep the baked-in fallback */ });
+  </script>
+</body>
+</html>

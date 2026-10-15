@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: Release notes
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build
+        run: ./scripts/package-app.sh
+      - name: Self-test
+        run: |
+          BIN_PATH="$(swift build -c release --show-bin-path)"
+          "$BIN_PATH/OneAct" --self-test "$RUNNER_TEMP/oneact-h264.mov"
+          "$BIN_PATH/OneAct" --self-test "$RUNNER_TEMP/oneact-prores.mov" --prores
+      - name: Publish unnotarized beta and refresh Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: ${{ inputs.notes }}
+        run: ./scripts/release.sh --publish "$RELEASE_NOTES"
