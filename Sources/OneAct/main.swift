@@ -1531,6 +1531,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dragStartCameraOrigin: CGPoint = .zero
     private var dragStartScreenCropOffset: CGPoint = .zero
     private var selectedRatioIndex = CanvasOptions.defaultRatioIndex
+    private let isLayoutReport = CommandLine.arguments.dropFirst().first == "--layout-report"
     private var selectedResolutionIndex = CanvasOptions.defaultResolutionIndex
     private var selectedRecordingFormat = VideoRecordingFormat.stored(
         UserDefaults.standard.string(forKey: "recording.videoFormat")
@@ -1538,10 +1539,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appliedCanvas = CanvasOptions.defaultPreset
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard !activateExistingInstance() else { return }
+        if !isLayoutReport, activateExistingInstance() { return }
         buildMainMenu()
         recorder = Recorder(previewLayer: previewView.previewLayer)
         configureScreenCapture()
+        if isLayoutReport {
+            enterMainInterface()
+            return
+        }
         showInitialInterface()
         installGlobalHotKeys()
         updateChecker.checkAutomatically()
@@ -1703,8 +1708,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         permissionOnboarding?.close()
         permissionOnboarding = nil
         buildRedesignedWindow()
-        reloadDevices(preservingSelection: false)
-        refreshAuthorizationAndConfigure(requestIfNeeded: false)
+        if !isLayoutReport {
+            reloadDevices(preservingSelection: false)
+            refreshAuthorizationAndConfigure(requestIfNeeded: false)
+        }
     }
 
     private func buildMainMenu() {
@@ -3576,6 +3583,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard let contentView = window.contentView else { return }
         window.layoutIfNeeded()
+        if let demoFlag = CommandLine.arguments.firstIndex(of: "--demo-scene") {
+            guard CommandLine.arguments.indices.contains(demoFlag + 1),
+                  let demoImage = NSImage(contentsOfFile: CommandLine.arguments[demoFlag + 1]) else {
+                fputs("LAYOUT_REPORT_FAILED: --demo-scene requires a readable image path.\n", stderr)
+                Darwin.exit(1)
+            }
+            // Presentation-only fixture: no camera or screen is captured. An
+            // NSImageView keeps the actual controls and their text unmodified.
+            let demoView = NSImageView(frame: previewView.bounds)
+            demoView.image = demoImage
+            demoView.imageScaling = .scaleProportionallyUpOrDown
+            demoView.autoresizingMask = [.width, .height]
+            previewView.addSubview(demoView)
+            statusLabel.stringValue = "Demo scene · illustrated presenter · no live capture"
+        }
         print("LAYOUT_REPORT size=\(contentView.frame.size) ambiguous=\(contentView.hasAmbiguousLayout)")
         print("RECORD_ROW pause=\(pauseButton.isHidden ? "hidden" : pauseButton.title) meterGap=\(Int(recordButton.frame.minX - audioMeter.frame.maxX))pt meterEnabled=\(audioMeter.inputAvailable)")
         print("CONFIG_LOCK mode=\(modeControl.isEnabled) screenSource=\(chooseScreenButton.isEnabled) layout=\(screenLayoutControl.isEnabled) frame=\(cameraFrameControl.isEnabled) backdrop=\(canvasBackdropWell.isEnabled) zoom=\(zoomSlider.isEnabled) ratio=\(ratioButtons.first?.isEnabled ?? false) resolution=\(resolutionButtons.first?.isEnabled ?? false) devices=\(captureOptionsButton.isEnabled) format=\(recordingFormatControl.isEnabled)")

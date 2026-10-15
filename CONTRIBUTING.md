@@ -1,20 +1,22 @@
-# 贡献指南
+# Contributing to OneAct
 
-欢迎改进 OneAct。提交较大功能前，请先开 Issue 说明使用场景和拟采用的方法。
+Contributions are welcome. Before starting a substantial feature, open an issue describing the use case and your proposed approach.
 
-## 本地开发
+## Local development
 
-使用 macOS 15+、Swift 6 工具链。运行 `./scripts/package-app.sh` 构建本地应用，运行方式与自测命令见 [README](README.md)。默认 ad-hoc 签名不需要开发者证书。
+Use macOS 15+ and a Swift 6 toolchain. Run `./scripts/package-app.sh` to build the app. The [README](README.md) covers running it and the self-tests. The default ad-hoc signing does not require a developer certificate.
 
-## 提交问题
+## Reporting a problem
 
-请附上 OneAct 与 macOS 版本、Mac 芯片、录制模式、预期行为和复现步骤。音视频问题还请说明设备型号、输出格式、分辨率及系统视频效果状态。诊断文件可能含有画面或脚本，分享前请自行检查和脱敏。
+Include your OneAct version, macOS version, Mac chip, recording mode, expected behavior, and reproduction steps. For audio or video issues, also include device models, output format, resolution, and any macOS video effects in use.
 
-## Pull Request
+Diagnostic files may contain your screen, camera image, or script. Review and redact them before sharing.
 
-- 保持修改聚焦，说明问题、行为变化和验证方式。
-- 合成、编码、暂停、计时或色彩变更应通过 H.264 与 ProRes 自测；采集与权限变更还需真实设备验证。
-- 官网变更应检查窄屏、键盘操作、下载链接和无 JavaScript 时的入口。
-- 不提交录制文件、提词稿、个人诊断素材、构建产物或签名凭据。
+## Pull requests
 
-提交贡献即表示你有权提供该内容，并同意以项目的 GPL-3.0-only 许可证发布。第三方素材必须注明来源及许可证，并与项目分发方式兼容。
+- Keep the change focused. Explain the problem, the resulting behavior, and how you verified it.
+- Run both H.264 and ProRes self-tests for compositing, encoding, pause, timing, or color changes. Capture and permission changes also need real-device testing.
+- For website changes, check narrow layouts, keyboard navigation, download links, and the fallback when JavaScript is unavailable.
+- Do not commit recordings, personal scripts, diagnostic footage, build outputs, or signing credentials.
+
+By contributing, you confirm that you have the right to provide your contribution and agree to release it under the project's GPL-3.0-only license. Identify the source and license of any third-party assets, and ensure they are compatible with the project's distribution.
