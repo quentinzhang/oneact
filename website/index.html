@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OneAct — One stage. One take.</title>
-<meta name="description" content="OneAct is a native macOS recorder that composites your screen and camera in real time — person cutout, built-in teleprompter, and everything stays on your Mac.">
+<meta name="description" content="Your story, in one take. OneAct is a native macOS recorder: what you see is what you save. Pause, breathe, and resume in one video, with a teleprompter and optional screen sharing.">
 <link rel="canonical" href="https://quentinzhang.github.io/oneact/">
 <link rel="icon" href="assets/logo.svg?v=coral" type="image/svg+xml">
 <link rel="icon" href="assets/icon-256.png?v=coral" type="image/png">
@@ -45,8 +45,23 @@
   .hero { padding: 72px 0 64px; text-align: center; }
   .hero h1 { font-size: clamp(36px, 6vw, 60px); font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
   .hero h1 .act { color: var(--rec); }
-  .hero .tagline { margin-top: 20px; font-size: clamp(17px, 2.6vw, 21px); color: var(--muted); }
-  .hero .sub { margin-top: 10px; font-size: 15px; color: var(--muted); }
+  .hero .tagline { max-width: 700px; margin: 20px auto 0; font-size: clamp(17px, 2.6vw, 21px); color: var(--muted); }
+  .hero .sub { max-width: 680px; margin: 10px auto 0; font-size: 15px; color: var(--muted); }
+  .hero .promise { margin-top: 18px; font-size: 17px; font-weight: 600; }
+
+  .pause-spotlight {
+    max-width: 880px; margin: 56px auto 0; padding: 30px;
+    background: linear-gradient(135deg, #2b1c22, var(--panel));
+    border: 1px solid #603039; border-radius: 18px; text-align: left;
+  }
+  .pause-spotlight .eyebrow { color: #ff9b9e; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  .pause-spotlight h2 { margin: 8px 0 12px; font-size: clamp(25px, 4vw, 32px); line-height: 1.2; letter-spacing: -0.02em; }
+  .pause-spotlight .pause-copy { max-width: 700px; color: var(--muted); font-size: 15px; }
+  .take-flow { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+  .take-flow li { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink); }
+  .take-flow strong { display: block; font-size: 16px; }
+  .take-flow span { color: var(--muted); font-size: 13px; }
+  .pause-result { margin-top: 16px; font-size: 14px; }
 
   .cta { margin-top: 40px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
   .download {
@@ -90,6 +105,9 @@
   .shot figcaption p { font-size: 14px; color: var(--muted); }
   .demo-note { margin: 20px auto 0; font-size: 12px; color: var(--muted); }
   @media (max-width: 480px) {
+    .pause-spotlight { padding: 22px 18px; }
+    .take-flow { grid-template-columns: 1fr; gap: 8px; }
+    .take-flow li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
     .demo-tabs button { font-size: 12px; padding: 10px 4px; }
     .demo h2 { font-size: 22px; }
   }
@@ -122,8 +140,9 @@
 
     <section class="hero">
       <h1>One stage. <span class="act">One take.</span></h1>
-      <p class="tagline">A native macOS recorder that composites your screen and camera in real time.</p>
-      <p class="sub">Person cutout · Built-in teleprompter · Everything stays on your Mac</p>
+      <p class="tagline">Tell your story. See it come together as you record.</p>
+      <p class="promise">What you see is what you save.</p>
+      <p class="sub">A native Mac recorder with room to breathe. Pause when you need a moment, then carry on in the same video.</p>
 
       <div class="cta">
         <a class="download" id="download-link" href="https://github.com/quentinzhang/oneact/releases/latest">
@@ -134,9 +153,21 @@
         <a class="source-link" href="https://github.com/quentinzhang/oneact/releases/latest">Release notes &amp; checksums</a>
       </div>
 
+      <section class="pause-spotlight" aria-labelledby="pause-title">
+        <p class="eyebrow">Pause &amp; resume</p>
+        <h2 id="pause-title">Pause. Breathe. Carry on.</h2>
+        <p class="pause-copy">Take a sip of water. Gather your thoughts. Set up the next shot. Pause your recording, then resume when you're ready. You can reframe or switch between Camera and Screen + Camera while paused; your teleprompter pauses and resumes with you.</p>
+        <ol class="take-flow" aria-label="One recording, at your own pace">
+          <li><strong>Record</strong><span>Let the story begin.</span></li>
+          <li><strong>Pause</strong><span>Take your moment.</span></li>
+          <li><strong>Resume</strong><span>Pick up the thread.</span></li>
+        </ol>
+        <p class="pause-result">One continuous video. The paused time stays out of the finished recording.</p>
+      </section>
+
       <section class="demo" id="demo" aria-labelledby="demo-title">
-        <h2 id="demo-title">Find your recording flow.</h2>
-        <p class="demo-intro">Camera, screen, and a little help with your lines.</p>
+        <h2 id="demo-title">Give your story the space it needs.</h2>
+        <p class="demo-intro">Speak to camera, walk through an idea, or keep your words close.</p>
         <div class="demo-tabs" id="demo-tabs" aria-label="Recording workspace previews" hidden>
           <button type="button" id="tab-camera" aria-controls="demo-camera">Camera</button>
           <button type="button" id="tab-screen" aria-controls="demo-screen">Screen + Camera</button>
@@ -147,7 +178,7 @@
             <img src="assets/demo-camera.png?v=0.41" alt="OneAct in Camera mode, with a fictional clay presenter centered against a warm studio background." width="940" height="780">
             <figcaption>
               <h3 id="camera-title">Just you and your story.</h3>
-              <p>Record with your camera for introductions, updates, and talking-head videos. Set your framing and press Record.</p>
+              <p>A personal message, a lesson, a thought worth sharing. Set your framing, look into the camera, and make it yours.</p>
             </figcaption>
           </figure>
         </div>
@@ -156,7 +187,7 @@
             <img src="assets/hero-demo.png?v=0.41" alt="OneAct in Screen + Camera mode, showing a presentation with a fictional illustrated presenter overlaid in the lower right." width="940" height="780" loading="lazy">
             <figcaption>
               <h3 id="screen-title">Show the work. Stay in the picture.</h3>
-              <p>Combine your screen and camera for walkthroughs, lessons, and product demos. Position your camera overlay right on the canvas.</p>
+              <p>When your story needs a demonstration, bring a display, app, or window into the shot. Walk through your work with your camera alongside it.</p>
             </figcaption>
           </figure>
         </div>
@@ -165,7 +196,7 @@
             <img src="assets/demo-teleprompter.png?v=0.41" alt="OneAct's Screen + Camera workspace with the real teleprompter panel open above the preview, showing an English sample script and reading controls." width="940" height="780" loading="lazy">
             <figcaption>
               <h3 id="prompter-title">Keep your words close.</h3>
-              <p>Read your script above the preview and scroll at your speaking pace. Works with Camera or Screen + Camera; the script stays out of OneAct's recorded video.</p>
+              <p>Give your next thought a place to wait. Read your script at your own pace, with Camera or Screen + Camera. Your words stay above the canvas and out of the finished video.</p>
             </figcaption>
           </figure>
         </div>
@@ -174,31 +205,31 @@
     </section>
 
     <section class="features">
-      <h2>Built for recording in one take</h2>
+      <h2>Made for the way you tell a story.</h2>
       <div class="grid">
         <div class="card">
-          <h3>Screen + camera compositing</h3>
-          <p>ScreenCaptureKit captures a display, app, or window; your camera overlays as picture-in-picture. What you see is exactly what you record.</p>
+          <h3>See it. Shape it. Save it.</h3>
+          <p>Your canvas comes together live: framing, backgrounds, and camera placement are already part of the video when you stop recording.</p>
         </div>
         <div class="card">
-          <h3>Person cutout</h3>
-          <p>Rectangle, Circle, or Cutout overlay styles. Cutout uses Vision person segmentation to lift you out of the background, frame by frame.</p>
+          <h3>Make the shot yours</h3>
+          <p>Give yourself the whole frame, settle into a picture-in-picture, or use person cutout. Choose your canvas shape, background, and camera position.</p>
         </div>
         <div class="card">
-          <h3>Built-in teleprompter</h3>
-          <p>Edit your script above the preview canvas, scroll at your speaking pace, and start with a countdown. The script stays out of OneAct's composited video.</p>
+          <h3>A little help with your words</h3>
+          <p>Keep your script close with the built-in teleprompter. A countdown gives you a moment to settle in; scrolling follows the pace you choose.</p>
         </div>
         <div class="card">
-          <h3>A canvas of your own</h3>
-          <p>Landscape or portrait ratios, Fit / Fill / Blur layouts, any canvas color. Drag the picture-in-picture wherever you want it.</p>
+          <h3>Bring your screen when it helps</h3>
+          <p>A product walkthrough, a lesson, a work in progress. Add screen sharing whenever showing something helps you tell the story.</p>
         </div>
         <div class="card">
-          <h3>Local first</h3>
-          <p>Recording and compositing happen entirely on your Mac. No account, no cloud, no waiting for uploads.</p>
+          <h3>Your voice, your finished file</h3>
+          <p>Choose your microphone and add system audio when you need it. Save a MOV video in H.264 for everyday sharing or ProRes 422 for further editing.</p>
         </div>
         <div class="card">
-          <h3>Choose your recording format</h3>
-          <p>Use H.264 for compact everyday recordings, or ProRes 422 for editing. Both save a MOV file with AAC audio, with pause and resume built in.</p>
+          <h3>Made on your Mac</h3>
+          <p>Your recording, script, and person cutout are processed locally. Open OneAct and start creating, with no account required.</p>
         </div>
       </div>
     </section>
@@ -267,7 +298,7 @@
         document.getElementById('download-meta').textContent =
           'v' + a.version + ' · Requires macOS 15 or later · Apple Silicon · Beta';
         document.getElementById('signing-note').textContent = a.notarized === true
-          ? 'Signed and notarized by Apple. Unzip and move OneAct to Applications.'
+          ? 'Developer ID signed and notarized by Apple. Unzip and move OneAct to Applications.'
           : 'This beta is not notarized by Apple and may be blocked by macOS. After verifying the source, follow Privacy & Security prompts to allow opening, or build from source.';
       })
       .catch(function () { /* keep the baked-in fallback */ });

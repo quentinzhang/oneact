@@ -2,11 +2,13 @@
 
 **One stage. One take.**
 
-OneAct is an open-source, native macOS recorder that brings your screen, camera, audio, and teleprompter into one workspace. Compose your shot live and save a ready-to-use video.
+Tell your story, at your own pace. OneAct is an open-source, native macOS recorder built around a simple promise: **what you see is what you save.** Shape your shot on the canvas as you record; when you stop, your picture and sound are already together in one video.
+
+Take a sip of water. Gather your thoughts. Set up the next shot. **Pause, then resume in the same recording.** The paused time stays out of the finished video, so you have room to breathe while bringing your story to life.
 
 [Website](https://quentinzhang.github.io/oneact/) · [Download](https://github.com/quentinzhang/oneact/releases/latest) · [Report an issue](https://github.com/quentinzhang/oneact/issues) · [简体中文](README.zh-CN.md)
 
-![OneAct's real recording interface with an illustrative presentation and a fictional clay-style presenter](website/assets/hero-demo.png)
+![OneAct's real Camera workspace with a fictional clay-style presenter in a warm studio scene](website/assets/demo-camera.png)
 
 *The canvas shows an illustrative demo scene. The presenter is a fictional illustration, with no real-person footage.*
 
@@ -15,18 +17,20 @@ OneAct is an open-source, native macOS recorder that brings your screen, camera,
 | Camera | Screen + Camera | With Teleprompter |
 | --- | --- | --- |
 | [![Camera preview](website/assets/demo-camera.png)](website/assets/demo-camera.png) | [![Screen and camera preview](website/assets/hero-demo.png)](website/assets/hero-demo.png) | [![Teleprompter preview](website/assets/demo-teleprompter.png)](website/assets/demo-teleprompter.png) |
-| Introductions and talking-head videos. | Walkthroughs, lessons, and product demos. | Your script above the preview, outside the recorded video. |
+| A personal message, a lesson, a thought worth sharing. | Bring your screen into the story when a demonstration helps. | Keep your next thought close, outside the recorded video. |
 
 [Switch between the three previews on the website](https://quentinzhang.github.io/oneact/#demo). The teleprompter works with either Camera or Screen + Camera.
 
 ## Features
 
-- **Live screen and camera compositing** — Record a display, app, or window. Choose a rounded rectangle, circle, person cutout, or hidden camera overlay.
-- **Flexible composition** — Landscape, portrait, and square canvases; Fit, Fill, and Blur layouts; draggable picture-in-picture; custom colors and software zoom.
-- **Built-in teleprompter** — Edit and scroll your script above the preview, with English and Chinese pacing and a countdown before recording.
-- **Audio mixing** — Pick a microphone, include system audio, or turn the microphone off to record computer audio only.
-- **H.264 and ProRes 422** — Save MOV files with AAC audio, with pause, resume, and global keyboard shortcuts.
-- **Local processing** — No account required. Recording, scripts, and person segmentation stay on your Mac. Version checks connect to GitHub.
+- **Pause. Breathe. Carry on.** — Pause and resume in one recording, with the paused time left out. Reframe or switch between Camera and Screen + Camera while paused, then pick up the thread. Global shortcuts keep the controls within reach.
+- **What you see is what you save** — Your canvas is composed live. Framing, backgrounds, and camera placement are already part of the saved video.
+- **Keep your words close** — A built-in teleprompter holds your script above the canvas, with English and Chinese pacing and a countdown to settle in. It pauses and resumes with the recording; your script stays out of the video.
+- **Share your screen when the story calls for it** — Bring a display, app, or window into a lesson, walkthrough, or product demo, with an optional camera overlay.
+- **Make the shot yours** — Landscape, portrait, and square canvases; Fit, Fill, and Blur layouts; draggable picture-in-picture; person cutout, custom colors, and software zoom.
+- **Your voice, in the mix** — Choose a microphone, add system audio, or record computer audio on its own.
+- **A file ready for what comes next** — Save MOV files with AAC audio. Choose H.264 for everyday sharing or ProRes 422 for further editing.
+- **Made on your Mac** — No account required. Recording, scripts, and person segmentation stay on your Mac. Version checks connect to GitHub.
 
 ## Download and install
 
@@ -36,7 +40,7 @@ Requires an **Apple Silicon Mac running macOS 15 or later**. OneAct is currently
 2. Unzip it, drag `OneAct.app` to Applications, and open it.
 3. Follow the prompts to allow camera, microphone, and screen recording access.
 
-Each release states its signing and notarization status. **Beta builds that have not been notarized by Apple may be blocked by Gatekeeper.** After verifying the source, follow the macOS prompts in **System Settings → Privacy & Security** to allow opening, or build from source. You do not need to disable system security settings.
+[Release v0.41](https://github.com/quentinzhang/oneact/releases/tag/v0.41) is **Developer ID signed and notarized by Apple**. Check the release notes for the signing status of each build.
 
 Each release includes `SHA256SUMS`. To verify your download, run this in the download folder:
 

@@ -2,15 +2,15 @@
 
 [English](README.md) · 简体中文
 
-**一个人，一块幕布，一次就演完。**
+**一个舞台，一镜到底。**
 
-OneAct 是开源的原生 macOS 录制工具，把屏幕、摄像头、声音与提词器放到一个工作台。实时构图，直接得到合成视频。
+把想说的话，好好说完。OneAct 是开源的原生 macOS 录制工具，让你按自己的节奏，一次录成完整视频。**所拍即所得**：在画布上实时构图，停下录制，画面与声音就已经合在同一个视频里。
 
-A native macOS recorder with live screen and camera compositing, person cutout, and a built-in teleprompter. Recording and processing stay on your Mac.
+喝口水，理清下一句，或为下一个场景重新构图。**随时暂停，再在同一次录制里继续。** 暂停的等待不会进入成片，让表达有停顿，也有从容。
 
 [项目主页](https://quentinzhang.github.io/oneact/) · [下载与版本说明](https://github.com/quentinzhang/oneact/releases/latest) · [反馈问题](https://github.com/quentinzhang/oneact/issues) · [GPL-3.0](LICENSE)
 
-![OneAct 真实界面，画布内为演示文稿和虚构插画人物](website/assets/hero-demo.png)
+![OneAct 真实 Camera 界面，画布内为暖色场景和虚构插画人物](website/assets/demo-camera.png)
 
 *截图中的画布为示例场景，人物是插画，不使用真人影像。*
 
@@ -19,18 +19,20 @@ A native macOS recorder with live screen and camera compositing, person cutout, 
 | Camera | Screen + Camera | 开启提词器 |
 | --- | --- | --- |
 | [![Camera 模式](website/assets/demo-camera.png)](website/assets/demo-camera.png) | [![屏幕与摄像头模式](website/assets/hero-demo.png)](website/assets/hero-demo.png) | [![开启提词器](website/assets/demo-teleprompter.png)](website/assets/demo-teleprompter.png) |
-| 适合介绍、分享和口播。 | 适合教程、演示和产品讲解。 | 稿件显示在预览上方，不进入 OneAct 录制的视频。 |
+| 一段心里话、一堂课、一个值得分享的想法。 | 当表达需要演示时，把屏幕带进画面。 | 把下一句放在眼前，稿件不进入成片。 |
 
 [在主页切换查看三种场景](https://quentinzhang.github.io/oneact/#demo)。提词器可以配合 Camera 或 Screen + Camera 使用。
 
 ## 功能
 
-- **屏幕与摄像头实时合成**：录制显示器、应用或窗口；支持圆角矩形、圆形、人物抠像和隐藏画中画。
-- **自由构图**：横屏、竖屏和方形画布，Fit / Fill / Blur 布局，可拖动画中画、自选底色和调整软件缩放。
-- **内置提词器**：在预览舞台顶部编辑与滚动脚本，中英文语速适配，录制前倒计时。
-- **音频混合**：选择麦克风，可加入系统声音，也可关闭麦克风只录电脑声音。
-- **H.264 / ProRes 422**：输出 `.mov` 与 AAC 音轨，支持暂停、继续和全局快捷键。
-- **本地处理**：无需账号；视频、脚本与人物分割均在 Mac 上处理。版本检查会连接 GitHub。
+- **暂停一下，从容继续**：暂停与继续始终保留在同一次录制中，暂停时间不进入成片。暂停时可重新构图、在 Camera 与 Screen + Camera 之间切换，再接着讲下去；也可使用全局快捷键控制。
+- **所拍即所得**：画布实时合成，构图、背景与摄像头位置直接成为成片的一部分。
+- **把下一句放在眼前**：内置提词器支持中英文语速和录制前倒计时，随录制一起暂停、继续；稿件留在画布上方，不进入视频。
+- **需要演示时，再分享屏幕**：把显示器、应用或窗口带进教程、演示和产品讲解中，可按需叠加摄像头画面。
+- **让画面有你的样子**：横屏、竖屏和方形画布，Fit / Fill / Blur 布局，可拖动画中画、人物抠像、自选底色与软件缩放。
+- **把声音一起录好**：选择麦克风，可加入系统声音，也可单独录制电脑声音。
+- **为下一步准备好文件**：输出 `.mov` 与 AAC 音轨；日常分享可选 H.264，后续剪辑可选 ProRes 422。
+- **在自己的 Mac 上完成**：无需账号；录制、脚本与人物分割均在本机处理。版本检查会连接 GitHub。
 
 ## 下载与安装
 
@@ -40,7 +42,7 @@ A native macOS recorder with live screen and camera compositing, person cutout, 
 2. 解压，将 `OneAct.app` 拖入“应用程序”，然后打开。
 3. 根据提示允许摄像头、麦克风和屏幕录制权限。
 
-发布说明会注明签名与公证状态。**未经过 Apple 公证的测试包可能被 Gatekeeper 阻止**；确认来源后，可按 macOS 提示在“系统设置 → 隐私与安全性”中允许打开，或自行从源码构建。无需关闭系统安全设置。
+[v0.41 发布版](https://github.com/quentinzhang/oneact/releases/tag/v0.41) 已完成 **Developer ID 签名与 Apple 公证**。各版本的签名状态以对应发布说明为准。
 
 同一 Release 提供 `SHA256SUMS`。在下载目录核对文件：
 
