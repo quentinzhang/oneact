@@ -14,6 +14,15 @@ A native macOS recorder with live screen and camera compositing, person cutout, 
 
 *截图中的画布为示例场景，人物是插画，不使用真人影像。*
 
+### 三种录制场景
+
+| Camera | Screen + Camera | 开启提词器 |
+| --- | --- | --- |
+| [![Camera 模式](website/assets/demo-camera.png)](website/assets/demo-camera.png) | [![屏幕与摄像头模式](website/assets/hero-demo.png)](website/assets/hero-demo.png) | [![开启提词器](website/assets/demo-teleprompter.png)](website/assets/demo-teleprompter.png) |
+| 适合介绍、分享和口播。 | 适合教程、演示和产品讲解。 | 稿件显示在预览上方，不进入 OneAct 录制的视频。 |
+
+[在主页切换查看三种场景](https://quentinzhang.github.io/oneact/#demo)。提词器可以配合 Camera 或 Screen + Camera 使用。
+
 ## 功能
 
 - **屏幕与摄像头实时合成**：录制显示器、应用或窗口；支持圆角矩形、圆形、人物抠像和隐藏画中画。

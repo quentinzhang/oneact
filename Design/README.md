@@ -1,10 +1,16 @@
 # Website demo assets
 
-The website and repository use `website/assets/hero-demo.png`: a screenshot rendered by OneAct's actual AppKit interface, with a fictional scene placed inside the preview canvas. No real-person footage or private screen content is used.
+The website provides three switchable previews, rendered by OneAct's actual AppKit interface with fictional scenes inside the preview canvas. No real-person footage or private screen content is used.
 
-`Design/demo-scene.png` is an AI-generated presentation and illustrated presenter, created with the built-in imagegen tool on 2026-10-15. It is a presentation fixture, not a demonstration of an avatar-generation feature in OneAct. The website and README label it as an illustrative demo scene.
+| Preview | Screenshot | Canvas fixture |
+| --- | --- | --- |
+| Camera | `website/assets/demo-camera.png` | `Design/demo-camera-scene.png` |
+| Screen + Camera | `website/assets/hero-demo.png` | `Design/demo-scene.png` |
+| With Teleprompter | `website/assets/demo-teleprompter.png` | `Design/demo-scene.png` plus the real teleprompter panel |
 
-## Reproduce the screenshot
+Both canvas fixtures were created with the built-in imagegen tool on 2026-10-15. The Camera scene uses the presentation scene as a character reference. They are presentation fixtures, not a demonstration of an avatar-generation feature in OneAct. The website and README label them as illustrative scenes.
+
+## Reproduce all three screenshots
 
 On macOS 15+ with the Swift 6 toolchain:
 
@@ -12,9 +18,19 @@ On macOS 15+ with the Swift 6 toolchain:
 ./scripts/render-demo.sh
 ```
 
-The script builds an isolated demo bundle under `build/demo/`, then renders the actual controls and the supplied image. Its bundle identifier is separate from the normal app. Layout-report mode skips live capture, device enumeration, global shortcuts, and update checks. The existing `website/assets/hero.png` is retained as the earlier empty-canvas reference.
+The script builds an isolated demo bundle under `build/demo/`, then renders the actual controls and the supplied images. Its bundle identifier is separate from the normal app. Layout-report mode skips live capture, device enumeration, global shortcuts, and update checks. It also disables teleprompter script loading and saving, so the fixtures cannot expose or overwrite a user's saved script. The existing `website/assets/hero.png` is retained as the earlier empty-canvas reference.
 
-## Generation prompt
+The teleprompter is a separate child window. For the website fixture only, its actual AppKit content is rendered at its window position on top of the main-window image. The recording compositor is unchanged and does not include that overlay. The sample script is fixed English text; the third preview shows Screen + Camera with the teleprompter enabled, and the same feature is available in Camera mode.
+
+The website tabs support clicking, Left/Right arrows, Home, and End. Without JavaScript all three previews remain visible.
+
+## Camera generation prompt
+
+Built-in imagegen, reference image `Design/demo-scene.png`, opaque background:
+
+> Use case: productivity-visual. Create a companion 16:9 camera-only demo canvas for a macOS recorder, using the attached illustration as the character and style reference. Preserve exactly the same obviously fictional clay illustrated presenter: dark curly sculpted hair, warm tan clay skin, friendly simplified face, coral overshirt with ivory buttons over an ivory T-shirt. Reframe him as a centered chest-up talking-to-camera shot, looking directly at the viewer with a relaxed smile, shoulders and upper torso visible, head with generous comfortable top margin. The presenter occupies the middle half of the canvas; no hands need be visible. Replace the presentation slide with a warm minimalist illustrated home studio: luminous warm ivory backdrop, a softly blurred small sage plant at the far left, a subtle pale coral abstract wall shape at far right. Clean, spacious, premium, soft diffused studio light, coherent tactile 3D clay illustration. No realistic human or photograph, no text, no logos, no cards or presentation content, no borders, no app chrome, no laptop, no watermark. Only the 16:9 scene that will be inserted into the real app preview. Opaque background.
+
+## Screen + Camera generation prompt
 
 Built-in imagegen, new image, opaque background:
 

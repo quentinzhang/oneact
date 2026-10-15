@@ -10,6 +10,15 @@ OneAct is an open-source, native macOS recorder that brings your screen, camera,
 
 *The canvas shows an illustrative demo scene. The presenter is a fictional illustration, with no real-person footage.*
 
+### Three ways to record
+
+| Camera | Screen + Camera | With Teleprompter |
+| --- | --- | --- |
+| [![Camera preview](website/assets/demo-camera.png)](website/assets/demo-camera.png) | [![Screen and camera preview](website/assets/hero-demo.png)](website/assets/hero-demo.png) | [![Teleprompter preview](website/assets/demo-teleprompter.png)](website/assets/demo-teleprompter.png) |
+| Introductions and talking-head videos. | Walkthroughs, lessons, and product demos. | Your script above the preview, outside the recorded video. |
+
+[Switch between the three previews on the website](https://quentinzhang.github.io/oneact/#demo). The teleprompter works with either Camera or Screen + Camera.
+
 ## Features
 
 - **Live screen and camera compositing** — Record a display, app, or window. Choose a rounded rectangle, circle, person cutout, or hidden camera overlay.

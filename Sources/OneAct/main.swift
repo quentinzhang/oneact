@@ -1521,7 +1521,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private let prompterButton = NSButton(title: "", target: nil, action: nil)
     private let countdownLabel = NSTextField(labelWithString: "")
-    private let teleprompter = TeleprompterController()
+    // Layout fixtures must neither read nor overwrite the user's saved script.
+    private let teleprompter = TeleprompterController(
+        persistsScript: CommandLine.arguments.dropFirst().first != "--layout-report"
+    )
     private var cameraOrigin: CGPoint?
     private var cameraOverlayScale: CGFloat = 1
     private var screenCropOffset: CGPoint = .zero
@@ -3512,6 +3515,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         return formatter.string(from: Date())
     }
 
+    /// Website fixtures use a fixed 2× scale, independent of the connected display.
+    private func layoutBitmap(for view: NSView) -> NSBitmapImageRep? {
+        guard CommandLine.arguments.contains("--demo-scene") else {
+            return view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        }
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(view.bounds.width * 2),
+            pixelsHigh: Int(view.bounds.height * 2),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        )
+        bitmap?.size = view.bounds.size
+        return bitmap
+    }
+
     /// Renders the main window off-screen and writes it to `outputPath`, so the
     /// layout can be checked without camera, microphone, or screen permissions.
     func writeLayoutReport(outputPath: String, screenMode: Bool, minimumSize: Bool) {
@@ -3532,10 +3552,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         enterMainInterface()
         if CommandLine.arguments.contains("--prores") { applyRecordingFormat(.proRes422, persist: false) }
-        if CommandLine.arguments.contains("--prompter") {
-            teleprompter.show()
-            writePrompterReport(outputPath: outputPath)
-        }
         if screenMode {
             modeControl.selectedSegment = 1
             captureModeChanged()
@@ -3598,6 +3614,44 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             previewView.addSubview(demoView)
             statusLabel.stringValue = "Demo scene · illustrated presenter · no live capture"
         }
+        if CommandLine.arguments.contains("--prompter") {
+            if CommandLine.arguments.contains("--demo-scene") {
+                teleprompter.setScriptForDiagnostics("""
+                Let's turn an idea into one take.
+
+                Share your screen. Tell your story.
+
+                Keep your notes close, and your eyes on the camera.
+                """)
+            }
+            teleprompter.show()
+            if CommandLine.arguments.contains("--demo-scene") {
+                // The prompter is a separate, non-shareable child window.
+                // Render its real AppKit view into the website fixture only;
+                // the recording compositor never includes this overlay.
+                guard let panel = window.childWindows?.first(where: { $0.sharingType == .none }),
+                      let panelView = panel.contentView else {
+                    fputs("LAYOUT_REPORT_FAILED: demo teleprompter is missing.\n", stderr)
+                    Darwin.exit(1)
+                }
+                panel.layoutIfNeeded()
+                guard let panelBitmap = layoutBitmap(for: panelView) else {
+                    fputs("LAYOUT_REPORT_FAILED: could not render demo teleprompter.\n", stderr)
+                    Darwin.exit(1)
+                }
+                panelView.cacheDisplay(in: panelView.bounds, to: panelBitmap)
+                let panelImage = NSImage(size: panelView.bounds.size)
+                panelImage.addRepresentation(panelBitmap)
+                let panelFrame = contentView.convert(window.convertFromScreen(panel.frame), from: nil)
+                let panelSnapshot = NSImageView(frame: panelFrame)
+                panelSnapshot.image = panelImage
+                panelSnapshot.imageScaling = .scaleAxesIndependently
+                contentView.addSubview(panelSnapshot)
+                print("DEMO_PROMPTER sharingType=\(panel.sharingType.rawValue) child=\(panel.parent === window) frame=\(panelFrame)")
+            } else {
+                writePrompterReport(outputPath: outputPath)
+            }
+        }
         print("LAYOUT_REPORT size=\(contentView.frame.size) ambiguous=\(contentView.hasAmbiguousLayout)")
         print("RECORD_ROW pause=\(pauseButton.isHidden ? "hidden" : pauseButton.title) meterGap=\(Int(recordButton.frame.minX - audioMeter.frame.maxX))pt meterEnabled=\(audioMeter.inputAvailable)")
         print("CONFIG_LOCK mode=\(modeControl.isEnabled) screenSource=\(chooseScreenButton.isEnabled) layout=\(screenLayoutControl.isEnabled) frame=\(cameraFrameControl.isEnabled) backdrop=\(canvasBackdropWell.isEnabled) zoom=\(zoomSlider.isEnabled) ratio=\(ratioButtons.first?.isEnabled ?? false) resolution=\(resolutionButtons.first?.isEnabled ?? false) devices=\(captureOptionsButton.isEnabled) format=\(recordingFormatControl.isEnabled)")
@@ -3614,7 +3668,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             let kind = item.isSectionHeader ? "section" : (item.isSeparatorItem ? "separator" : "item")
             print("RECORD_MENU \(kind) \(state) \(item.title) enabled=\(item.isEnabled)")
         }
-        guard let representation = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { return }
+        guard let representation = layoutBitmap(for: contentView) else { return }
         contentView.cacheDisplay(in: contentView.bounds, to: representation)
         if let data = representation.representation(using: .png, properties: [:]) {
             try? data.write(to: URL(fileURLWithPath: outputPath))

@@ -13,7 +13,13 @@ cp Info.plist "$DEMO_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.oneact.screenshot' "$DEMO_APP/Contents/Info.plist"
 cp AppIcon.icns "$DEMO_APP/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$DEMO_APP"
+"$DEMO_APP/Contents/MacOS/OneAct" --layout-report "$PWD/website/assets/demo-camera.png" \
+  --demo-scene "$PWD/Design/demo-camera-scene.png"
 "$DEMO_APP/Contents/MacOS/OneAct" --layout-report "$PWD/website/assets/hero-demo.png" \
   --screen-mode --cutout --demo-scene "$PWD/Design/demo-scene.png"
-test -s website/assets/hero-demo.png
-echo "Rendered website/assets/hero-demo.png"
+"$DEMO_APP/Contents/MacOS/OneAct" --layout-report "$PWD/website/assets/demo-teleprompter.png" \
+  --screen-mode --cutout --prompter --demo-scene "$PWD/Design/demo-scene.png"
+for image in demo-camera hero-demo demo-teleprompter; do
+  test -s "website/assets/$image.png"
+  echo "Rendered website/assets/$image.png"
+done

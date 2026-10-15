@@ -20,6 +20,7 @@
     --rec-dim: #b83a3e;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     background: var(--ink);
     color: var(--text);
@@ -34,7 +35,9 @@
   .brand img { width: 26px; height: 26px; display: block; }
   header .ver { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   a { color: var(--text); text-underline-offset: 3px; }
-  a:focus-visible { outline: 2px solid var(--rec); outline-offset: 5px; }
+  a:focus-visible, button:focus-visible, [role="tabpanel"]:focus-visible {
+    outline: 2px solid var(--rec); outline-offset: 5px;
+  }
   .source-link { font-size: 14px; }
   .install-note { max-width: 620px; font-size: 13px; color: var(--muted); }
   .install-note strong { color: var(--text); }
@@ -57,8 +60,24 @@
   .download .rec { width: 12px; height: 12px; border-radius: 50%; background: #fff; }
   .cta .meta { font-size: 13px; color: var(--muted); }
 
+  .demo { margin: 56px auto 0; max-width: 880px; scroll-margin-top: 24px; }
+  .demo h2 { font-size: 25px; letter-spacing: -0.02em; }
+  .demo-intro { margin: 8px auto 24px; color: var(--muted); font-size: 15px; }
+  .demo-tabs {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px; max-width: 540px; margin: 0 auto 24px; padding: 5px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  }
+  .demo-tabs button {
+    border: 0; border-radius: 9px; padding: 11px 8px; cursor: pointer;
+    background: transparent; color: var(--muted); font: inherit;
+    font-size: 14px; line-height: 1.35; font-weight: 600;
+  }
+  .demo-tabs button:hover { background: #27272e; color: var(--text); }
+  .demo-tabs button[aria-selected="true"] { background: #37373f; color: #fff; }
+  .demo-panel { margin-top: 24px; border-radius: 14px; }
   .shot {
-    margin: 56px auto 0; max-width: 880px;
+    margin: 0;
   }
   .shot img {
     display: block; width: 100%; height: auto;
@@ -66,7 +85,14 @@
     border: 1px solid var(--line);
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
   }
-  .shot figcaption { margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .shot figcaption { margin: 20px auto 0; max-width: 660px; }
+  .shot h3 { font-size: 19px; margin-bottom: 5px; }
+  .shot figcaption p { font-size: 14px; color: var(--muted); }
+  .demo-note { margin: 20px auto 0; font-size: 12px; color: var(--muted); }
+  @media (max-width: 480px) {
+    .demo-tabs button { font-size: 12px; padding: 10px 4px; }
+    .demo h2 { font-size: 22px; }
+  }
 
   section.features { padding: 80px 0; }
   .features h2 { font-size: 26px; margin-bottom: 28px; text-align: center; }
@@ -108,10 +134,43 @@
         <a class="source-link" href="https://github.com/quentinzhang/oneact/releases/latest">Release notes &amp; checksums</a>
       </div>
 
-      <figure class="shot">
-        <img src="assets/hero-demo.png" alt="OneAct's actual recording interface showing an illustrative presentation and a fictional clay-style presenter in the preview canvas." width="940" height="780">
-        <figcaption>One canvas, one control panel, one Record button. Shown with an illustrative demo scene.</figcaption>
-      </figure>
+      <section class="demo" id="demo" aria-labelledby="demo-title">
+        <h2 id="demo-title">Find your recording flow.</h2>
+        <p class="demo-intro">Camera, screen, and a little help with your lines.</p>
+        <div class="demo-tabs" id="demo-tabs" aria-label="Recording workspace previews" hidden>
+          <button type="button" id="tab-camera" aria-controls="demo-camera">Camera</button>
+          <button type="button" id="tab-screen" aria-controls="demo-screen">Screen + Camera</button>
+          <button type="button" id="tab-prompter" aria-controls="demo-prompter">With Teleprompter</button>
+        </div>
+        <div class="demo-panel" id="demo-camera" aria-labelledby="camera-title">
+          <figure class="shot">
+            <img src="assets/demo-camera.png" alt="OneAct in Camera mode, with a fictional clay presenter centered against a warm studio background." width="940" height="780">
+            <figcaption>
+              <h3 id="camera-title">Just you and your story.</h3>
+              <p>Record with your camera for introductions, updates, and talking-head videos. Set your framing and press Record.</p>
+            </figcaption>
+          </figure>
+        </div>
+        <div class="demo-panel" id="demo-screen" aria-labelledby="screen-title">
+          <figure class="shot">
+            <img src="assets/hero-demo.png" alt="OneAct in Screen + Camera mode, showing a presentation with a fictional illustrated presenter overlaid in the lower right." width="940" height="780" loading="lazy">
+            <figcaption>
+              <h3 id="screen-title">Show the work. Stay in the picture.</h3>
+              <p>Combine your screen and camera for walkthroughs, lessons, and product demos. Position your camera overlay right on the canvas.</p>
+            </figcaption>
+          </figure>
+        </div>
+        <div class="demo-panel" id="demo-prompter" aria-labelledby="prompter-title">
+          <figure class="shot">
+            <img src="assets/demo-teleprompter.png" alt="OneAct's Screen + Camera workspace with the real teleprompter panel open above the preview, showing an English sample script and reading controls." width="940" height="780" loading="lazy">
+            <figcaption>
+              <h3 id="prompter-title">Keep your words close.</h3>
+              <p>Read your script above the preview and scroll at your speaking pace. Works with Camera or Screen + Camera; the script stays out of OneAct's recorded video.</p>
+            </figcaption>
+          </figure>
+        </div>
+        <p class="demo-note">Actual OneAct interface with illustrative scenes and a fictional presenter. No real-person footage.</p>
+      </section>
     </section>
 
     <section class="features">
@@ -152,6 +211,43 @@
   </div>
 
   <script>
+    // Progressive enhancement: without JavaScript, all three previews remain visible.
+    (function () {
+      var tabList = document.getElementById('demo-tabs');
+      var tabs = Array.from(tabList.querySelectorAll('button'));
+      var panels = tabs.map(function (tab) {
+        return document.getElementById(tab.getAttribute('aria-controls'));
+      });
+      function selectTab(index, moveFocus) {
+        tabs.forEach(function (tab, i) {
+          tab.setAttribute('aria-selected', String(i === index));
+          tab.tabIndex = i === index ? 0 : -1;
+          panels[i].hidden = i !== index;
+        });
+        if (moveFocus) tabs[index].focus();
+      }
+      tabs.forEach(function (tab, index) {
+        tab.setAttribute('role', 'tab');
+        panels[index].setAttribute('role', 'tabpanel');
+        panels[index].setAttribute('aria-labelledby', tab.id);
+        panels[index].tabIndex = 0;
+        tab.addEventListener('click', function () { selectTab(index, false); });
+        tab.addEventListener('keydown', function (event) {
+          var next;
+          if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+          else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+          else if (event.key === 'Home') next = 0;
+          else if (event.key === 'End') next = tabs.length - 1;
+          else return;
+          event.preventDefault();
+          selectTab(next, true);
+        });
+      });
+      tabList.setAttribute('role', 'tablist');
+      selectTab(0, false);
+      tabList.hidden = false;
+    }());
+
     // The appcast is the single source of truth for the released version;
     // keep the page's version strings and download link in sync with it.
     fetch('appcast.json', { cache: 'no-store' })

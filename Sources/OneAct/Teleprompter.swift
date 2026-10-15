@@ -163,6 +163,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     private var fontSize: CGFloat
     private var wordsPerMinute: Double
     private var backdropIndex: Int
+    private let persistsScript: Bool
     private var swatchButtons: [NSButton] = []
     private var tintedControls: [NSView] = []
 
@@ -189,7 +190,8 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     var isVisible: Bool { overlayWindow?.isVisible == true }
     var isScrolling: Bool { scrollTimer != nil }
 
-    override init() {
+    init(persistsScript: Bool = true) {
+        self.persistsScript = persistsScript
         let defaults = UserDefaults.standard
         let storedFontSize = CGFloat(defaults.double(forKey: TeleprompterDefaults.fontSize))
         let storedSpeed = defaults.double(forKey: TeleprompterDefaults.wordsPerMinute)
@@ -198,7 +200,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         let storedBackdrop = defaults.integer(forKey: TeleprompterDefaults.backdrop)
         backdropIndex = (0..<TeleprompterBackdrop.all.count).contains(storedBackdrop) ? storedBackdrop : 0
         super.init()
-        if let saved = Self.loadScriptFromDisk() {
+        if persistsScript, let saved = Self.loadScriptFromDisk() {
             script = saved
             hasSavedScript = true
         } else {
@@ -224,7 +226,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     func setScript(_ newScript: String) {
         script = newScript
         hasSavedScript = true
-        Self.saveScriptToDisk(newScript)
+        if persistsScript { Self.saveScriptToDisk(newScript) }
         applyScript()
     }
 
