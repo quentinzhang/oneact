@@ -28,6 +28,8 @@
 	<string>OneAct needs microphone access to record audio with video.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>OneAct needs access to system audio to include the sounds playing on your Mac in recordings.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Follow voice recognizes your speech on this Mac so the teleprompter keeps pace as you read. Audio never leaves your Mac.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>OneAct needs screen recording access to capture a display, application, or window for Screen + Camera recordings.</string>
 	<key>NSCameraUseContinuityCameraDeviceType</key>

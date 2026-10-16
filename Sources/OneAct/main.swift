@@ -498,6 +498,10 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     /// the meter is to catch a dead microphone before the take, not after.
     var onAudioLevel: ((Float) -> Void)?
     private var lastAudioLevelReport: CFTimeInterval = 0
+    /// Every microphone buffer, recording or not, on the capture queue — for
+    /// listeners such as the teleprompter's Follow voice, which must not open
+    /// a second capture session on the same device.
+    private var microphoneSampleHandler: ((CMSampleBuffer) -> Void)?
     private let usesNativeCameraFormat: Bool
     private var frameDiagnostics: CameraFrameDiagnostics?
     private var lastCaptureState: CameraCaptureState?
@@ -507,6 +511,10 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
 
     func setFrameDiagnostics(_ diagnostics: CameraFrameDiagnostics?) {
         captureQueue.async { self.frameDiagnostics = diagnostics }
+    }
+
+    func setMicrophoneSampleHandler(_ handler: ((CMSampleBuffer) -> Void)?) {
+        captureQueue.async { self.microphoneSampleHandler = handler }
     }
 
     func setRecordingFormat(_ format: VideoRecordingFormat) {
@@ -1008,6 +1016,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
             }
         } else if output === audioOutput {
             reportAudioLevel(from: connection)
+            microphoneSampleHandler?(sampleBuffer)
             audioMixer.addMicrophone(sampleBuffer)
         }
     }
@@ -1719,6 +1728,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         activeRecorder.onAudioLevel = { [weak self] decibels in
             MainActor.assumeIsolated { self?.audioMeter.report(decibels: decibels) }
         }
+        // Follow voice hears the microphone the take records, through this
+        // session — rehearsal included, since the preview keeps it running.
+        let voiceFollow = teleprompter.voiceFollow
+        activeRecorder.setMicrophoneSampleHandler { sampleBuffer in
+            voiceFollow.appendMicrophone(sampleBuffer)
+        }
         activeRecorder.onCaptureStateChange = { [weak self] state in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -2152,6 +2167,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         prompterButton.toolTip = "Teleprompter · a floating script panel that stays out of recordings"
         teleprompter.onVisibilityChanged = { [weak self] visible in
             self?.prompterButton.state = visible ? .on : .off
+        }
+        teleprompter.onStatusMessage = { [weak self] message in
+            self?.statusLabel.stringValue = message
+        }
+        teleprompter.voiceFollow.microphoneProblem = { [weak self] in
+            self?.followVoiceMicrophoneProblem
         }
 
         zoomSlider.target = self
@@ -2667,6 +2688,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var selectedMicrophone: AVCaptureDevice? {
         audioDevices.first { $0.uniqueID == selectedMicrophoneID }
+    }
+
+    /// Why Follow voice cannot hear the presenter right now, if anything: it
+    /// listens to the selected microphone through the preview's session.
+    private var followVoiceMicrophoneProblem: String? {
+        if microphoneDisabled {
+            return "It needs a microphone. Choose one in the record menu."
+        }
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            return "It needs microphone access. Allow OneAct in Privacy & Security → Microphone."
+        }
+        guard selectedMicrophone != nil else {
+            return "It needs a microphone. Connect one, then choose Refresh Devices in the record menu."
+        }
+        guard cameraSessionReady else {
+            return "It starts listening once the camera preview is running."
+        }
+        return nil
     }
 
     private func setCaptureControlsEnabled(_ enabled: Bool) {
@@ -3514,14 +3553,31 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         print("PROMPTER_EDIT begin editing=\(teleprompter.isEditing) playEnabled=\(teleprompter.playControlEnabled)")
         teleprompter.commitEditing()
         print("PROMPTER_EDIT commit editing=\(teleprompter.isEditing) playEnabled=\(teleprompter.playControlEnabled) saved=\(teleprompter.hasSavedScript)")
-        guard let representation = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { return }
-        contentView.cacheDisplay(in: contentView.bounds, to: representation)
-        if let data = representation.representation(using: .png, properties: [:]) {
-            let url = URL(fileURLWithPath: outputPath)
-                .deletingPathExtension()
-                .appendingPathExtension("prompter.png")
-            try? data.write(to: url)
+        func renderPanel(suffix: String) {
+            panel.layoutIfNeeded()
+            guard let representation = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { return }
+            contentView.cacheDisplay(in: contentView.bounds, to: representation)
+            if let data = representation.representation(using: .png, properties: [:]) {
+                let url = URL(fileURLWithPath: outputPath)
+                    .deletingPathExtension()
+                    .appendingPathExtension(suffix)
+                try? data.write(to: url)
+            }
         }
+        // Default bar: the Follow voice toggle, off, beside the speed slider.
+        // Neither state is persisted and no recognition starts.
+        teleprompter.setFollowVoiceForDiagnostics(false)
+        print("PROMPTER_FOLLOW off \(teleprompter.followVoiceDiagnostics)")
+        renderPanel(suffix: "prompter.png")
+        // Follow voice on: language and status replace the slider, and the
+        // part already spoken is dimmed above the reading line.
+        teleprompter.setScriptForDiagnostics(PrompterFollowSimulation.sampleScript)
+        let readingOffset = teleprompter.setFollowVoiceForDiagnostics(true, spokenFraction: 0.4) ?? -1
+        print("PROMPTER_FOLLOW on \(teleprompter.followVoiceDiagnostics) reading_offset=\(Int(readingOffset)) \(teleprompter.followGeometryDiagnostics())")
+        renderPanel(suffix: "prompter-follow.png")
+        print("PROMPTER_FOLLOW_SIM \(teleprompter.followSimulationDiagnostics())")
+        teleprompter.setFollowVoiceForDiagnostics(false)
+        teleprompter.setScriptForDiagnostics(originalScript)
     }
 
     @objc private func togglePause() {
@@ -3902,6 +3958,16 @@ private struct OneActApp {
         }
         if CommandLine.arguments.count >= 4, CommandLine.arguments[1] == "--touch-up-still" {
             Darwin.exit(TouchUpBenchmark.still(inputPath: CommandLine.arguments[2], outputPath: CommandLine.arguments[3]))
+        }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--aligner-test" {
+            Darwin.exit(ScriptAlignerSelfTest.run())
+        }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--speech-report" {
+            Darwin.exit(VoiceFollowProbe.speechReport())
+        }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--voice-follow-probe" {
+            VoiceFollowProbe.run(requestPermission: CommandLine.arguments.contains("--request-permission"))
+            RunLoop.main.run()
         }
         if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--device-report" {
             Darwin.exit(DeviceReport.run())
