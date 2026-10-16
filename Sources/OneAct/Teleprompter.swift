@@ -130,14 +130,23 @@ private final class FadingClipView: NSView {
     }
 }
 
+/// The empty-script hint. It floats over the text view instead of living in
+/// it, so it can never be clicked, edited or saved into the script — and it
+/// lets every click fall through to the text underneath.
+private final class PlaceholderLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 @MainActor
 final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelegate {
     /// Fired on show/hide so the header toggle can mirror the real state even
     /// when the overlay is closed from its own ✕ button.
     var onVisibilityChanged: ((Bool) -> Void)?
 
+    /// Only ever what the user wrote. Empty is a real state, not a cue to fill
+    /// in instructions — those live in `placeholderLabel`.
     private(set) var script: String = ""
-    private(set) var hasSavedScript = false
+    var hasScript: Bool { !script.isEmpty }
     private(set) var isEditing = false
 
     private weak var hostWindow: NSWindow?
@@ -149,6 +158,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     private var playButton: NSButton?
     private var speedSlider: NSSlider?
     private var editHintLabel: NSTextField?
+    private var placeholderLabel: NSTextField?
     private var clickRecognizer: NSClickGestureRecognizer?
     private var scrollTimer: Timer?
     private var scrollOffset: CGFloat = 0
@@ -216,11 +226,8 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         let storedBackdrop = defaults.integer(forKey: TeleprompterDefaults.backdrop)
         backdropIndex = (0..<TeleprompterBackdrop.all.count).contains(storedBackdrop) ? storedBackdrop : 0
         super.init()
-        if persistsScript, let saved = Self.loadScriptFromDisk() {
-            script = saved
-            hasSavedScript = true
-        } else {
-            script = Self.placeholderScript
+        if persistsScript {
+            script = Self.loadScriptFromDisk() ?? ""
         }
         wireFollowVoice()
     }
@@ -240,9 +247,10 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
 
     // MARK: - Script persistence
 
+    /// Saves even an empty script: clearing the prompter has to reach the disk,
+    /// or the previous script comes back on the next launch.
     func setScript(_ newScript: String) {
         script = newScript
-        hasSavedScript = true
         if persistsScript { Self.saveScriptToDisk(newScript) }
         applyScript()
     }
@@ -277,13 +285,9 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         try? script.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private static let placeholderScript = """
-    Click here, then write or paste your script.
-
-    Esc or a click outside saves it.
-
-    Blank lines become breathing room — one thought per block reads best on camera.
-    """
+    private static let placeholderPrompt = "Click here to write or paste your script"
+    private static let placeholderEditingPrompt = "Write or paste your script"
+    private static let placeholderTip = "Blank lines become breathing room — one thought per block reads best on camera."
 
     // MARK: - Visibility
 
@@ -421,6 +425,14 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         self.textView = textView
         followScroller.attach(textView: textView, scrollView: scrollView)
 
+        // Added after the scroll view so it draws on top of the empty text.
+        let placeholder = PlaceholderLabel(wrappingLabelWithString: "")
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        placeholder.isSelectable = false
+        placeholder.alignment = .center
+        clip.addSubview(placeholder)
+        placeholderLabel = placeholder
+
         let controlBar = makeControlBar()
         controlBar.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(controlBar)
@@ -439,6 +451,10 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
             ),
             scrollView.leadingAnchor.constraint(greaterThanOrEqualTo: clip.leadingAnchor),
             scrollView.trailingAnchor.constraint(lessThanOrEqualTo: clip.trailingAnchor),
+
+            placeholder.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
+            placeholder.centerYAnchor.constraint(equalTo: clip.centerYAnchor),
+            placeholder.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -24),
 
             controlBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             controlBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
@@ -572,7 +588,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         backdropIndex = sender.tag
         UserDefaults.standard.set(backdropIndex, forKey: TeleprompterDefaults.backdrop)
         applyBackdrop()
-        applyScript()
+        restyleScript()
     }
 
     /// Everything whose color depends on the backdrop, in one place.
@@ -585,6 +601,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
             : preset.border.cgColor
         textView?.insertionPointColor = preset.text
         editHintLabel?.textColor = preset.text.withAlphaComponent(0.55)
+        updatePlaceholder()
         for control in tintedControls {
             if let button = control as? NSButton {
                 button.contentTintColor = preset.controls
@@ -614,16 +631,9 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         stopScrolling()
         isEditing = true
         clickRecognizer?.isEnabled = false
-        // The placeholder is instructions, not script — editing starts blank.
-        if !hasSavedScript {
-            textView.string = ""
-        }
         textView.isEditable = true
         textView.isSelectable = true
-        // Scrolling cannot run while the text is being rewritten, so the play
-        // control greys out instead of silently ignoring the click.
-        playButton?.isEnabled = false
-        playButton?.alphaValue = 0.35
+        updatePlayAvailability()
         applyBackdrop()
         editHintLabel?.isHidden = false
         overlay.makeKey()
@@ -638,27 +648,25 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         clickRecognizer?.isEnabled = !recordingLocked
         textView.isEditable = false
         textView.isSelectable = false
-        playButton?.isEnabled = true
-        playButton?.alphaValue = 1
         applyBackdrop()
         editHintLabel?.isHidden = true
 
+        // Whitespace alone is not a script: store it as empty so the
+        // placeholder comes back instead of a blank, playable strip.
         let text = textView.string
-        // Nothing was actually written — empty, or still the instructions. Keep
-        // showing them and save nothing, so a stray click never turns the
-        // placeholder into "your script".
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || text == Self.placeholderScript {
-            script = Self.placeholderScript
-            applyScript()
-        } else if text != script || !hasSavedScript {
-            setScript(text)
+        let written = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : text
+        if written != script {
+            setScript(written)
         } else {
             applyScript()
         }
         if overlayWindow?.isKeyWindow == true {
             hostWindow?.makeKey()
         }
+    }
+
+    func textDidChange(_ notification: Notification) {
+        updatePlaceholder()
     }
 
     func textDidEndEditing(_ notification: Notification) {
@@ -680,17 +688,38 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
 
     // MARK: - Rendering
 
-    private func applyScript() {
-        guard let textView else { return }
+    private var scriptAttributes: [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineHeightMultiple = 1.25
         paragraph.paragraphSpacing = fontSize * 0.6
-        let attributes: [NSAttributedString.Key: Any] = [
+        return [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .medium),
             .foregroundColor: currentBackdrop.text,
             .paragraphStyle: paragraph
         ]
+    }
+
+    /// For a font or backdrop change. While editing, the text view holds typing
+    /// that is not saved yet, so it is restyled where it stands — replacing it
+    /// with `script` threw that typing away.
+    private func restyleScript() {
+        guard isEditing, let textView, let storage = textView.textStorage else {
+            applyScript()
+            return
+        }
+        let attributes = scriptAttributes
+        let selection = textView.selectedRanges
+        storage.setAttributes(attributes, range: NSRange(location: 0, length: storage.length))
+        textView.typingAttributes = attributes
+        textView.selectedRanges = selection
+        updateReadingInset()
+        updatePlaceholder()
+    }
+
+    private func applyScript() {
+        guard let textView else { return }
+        let attributes = scriptAttributes
         textView.textStorage?.setAttributedString(
             NSAttributedString(string: script, attributes: attributes)
         )
@@ -701,6 +730,48 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         followScroller.layoutChanged()
         applyFollowVoiceMode()
         scrollToTop()
+        updatePlaceholder()
+        updatePlayAvailability()
+    }
+
+    /// The instructions show only while there is no text at all, muted so they
+    /// read as a hint rather than as the script.
+    private func updatePlaceholder() {
+        guard let placeholderLabel, let textView else { return }
+        let isEmpty = textView.string.isEmpty
+        placeholderLabel.isHidden = !isEmpty
+        guard isEmpty else { return }
+
+        let color = currentBackdrop.text
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.paragraphSpacing = 6
+        let hint = NSMutableAttributedString(
+            string: (isEditing ? Self.placeholderEditingPrompt : Self.placeholderPrompt) + "\n",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 17, weight: .medium),
+                .foregroundColor: color.withAlphaComponent(0.5),
+                .paragraphStyle: paragraph
+            ]
+        )
+        hint.append(NSAttributedString(
+            string: Self.placeholderTip,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 12),
+                .foregroundColor: color.withAlphaComponent(0.38),
+                .paragraphStyle: paragraph
+            ]
+        ))
+        placeholderLabel.attributedStringValue = hint
+    }
+
+    /// Play needs something to scroll and cannot run while the text is being
+    /// rewritten, so it greys out instead of silently ignoring the click.
+    private func updatePlayAvailability() {
+        let available = hasScript && !isEditing
+        playButton?.isEnabled = available
+        playButton?.alphaValue = available ? 1 : 0.35
+        playButton?.toolTip = hasScript ? "Start or pause scrolling" : "Write a script to start scrolling"
     }
 
     /// Chinese is spoken at roughly 220 characters per minute where English runs
@@ -754,7 +825,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     // MARK: - Scrolling
 
     func startScrolling() {
-        guard isVisible, !isEditing, scrollTimer == nil else { return }
+        guard isVisible, !isEditing, hasScript, scrollTimer == nil else { return }
         // Wherever the script sits right now is where scrolling continues
         // from. Only the timer writes `scrollOffset`, so a script dragged to a
         // new spot — typically while paused mid-take — otherwise snapped back
@@ -1019,6 +1090,6 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
             TeleprompterLimits.maximumFontSize
         )
         UserDefaults.standard.set(Double(fontSize), forKey: TeleprompterDefaults.fontSize)
-        applyScript()
+        restyleScript()
     }
 }
