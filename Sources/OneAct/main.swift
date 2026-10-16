@@ -133,6 +133,7 @@ private final class PreviewView: NSView {
     private let screenPreviewLayer = AVSampleBufferDisplayLayer()
     private var softwareZoom: CGFloat = 1
     private var captureMode: CaptureMode = .cameraOnly
+    private var composedCameraPreview = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -221,13 +222,30 @@ private final class PreviewView: NSView {
         )
     }
 
+    /// Touch-up changes the camera picture, which the live capture layer
+    /// cannot show. While it is on, camera mode previews the composed frames
+    /// instead — the ones being recorded. Switching on waits for the first of
+    /// them, so the live picture is never swapped for an empty layer.
+    func setComposedCameraPreview(_ composed: Bool) {
+        guard composed != composedCameraPreview else { return }
+        composedCameraPreview = composed
+        guard !composed, captureMode == .cameraOnly else { return }
+        previewLayer.isHidden = false
+        screenPreviewLayer.isHidden = true
+        screenPreviewLayer.sampleBufferRenderer.flush()
+    }
+
     func displayComposedFrame(_ sampleBuffer: CMSampleBuffer) {
-        guard captureMode == .screenAndCamera else { return }
+        guard captureMode == .screenAndCamera || composedCameraPreview else { return }
         let renderer = screenPreviewLayer.sampleBufferRenderer
         if renderer.status == .failed {
             renderer.flush()
         }
         renderer.enqueue(sampleBuffer)
+        if captureMode == .cameraOnly, screenPreviewLayer.isHidden {
+            screenPreviewLayer.isHidden = false
+            previewLayer.isHidden = true
+        }
     }
 }
 
@@ -413,6 +431,8 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private let segmentationQueue = DispatchQueue(label: "oneact.segmentation")
     private let maskLock = NSLock()
     private let ciContext: CIContext
+    /// Light, warmth and skin smoothing for the camera layer only.
+    let touchUp: TouchUpStage
     private let canvasLock = NSLock()
     private var canvas = CanvasOptions.defaultPreset
     private var softwareZoom: CGFloat = 1
@@ -504,6 +524,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         } else {
             ciContext = CIContext(options: [.useSoftwareRenderer: true])
         }
+        touchUp = TouchUpStage(context: ciContext)
         super.init()
         audioMixer.onMixedBuffer = { [weak self] sampleBuffer in
             self?.appendMixedAudio(sampleBuffer)
@@ -596,6 +617,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         maskLock.lock()
         personTracker.reset()
         maskLock.unlock()
+        touchUp.faceTracker.reset()
     }
 
     /// Mirroring is applied at the capture connection so that everything
@@ -782,6 +804,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         // A new device brings a new connection, which starts out with whatever
         // mirroring AVFoundation thinks the device wants.
         applyVideoMirroring()
+        touchUp.faceTracker.reset()
     }
 
     func startSession() {
@@ -945,6 +968,10 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
             let selectedMode = captureMode
             let selectedFrame = cameraFrameStyle
             canvasLock.unlock()
+            if let cameraBuffer = latestCameraBuffer,
+               selectedMode == .cameraOnly || selectedFrame.showsCamera {
+                touchUp.observe(cameraBuffer)
+            }
             if selectedMode == .screenAndCamera {
                 if selectedFrame.needsPersonMask, let cameraBuffer = latestCameraBuffer {
                     requestPersonMask(for: cameraBuffer)
@@ -959,12 +986,15 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                     renderEmptyCanvasPreview(timingFrom: sampleBuffer)
                 }
             }
+            let touchedUpFrame = selectedMode == .cameraOnly && touchUp.isActive
+                ? composedCameraPreview(from: sampleBuffer)
+                : nil
             guard selectedMode == .cameraOnly,
                   recording,
                   let writerClockTime = writerTime(for: sampleBuffer),
                   startWriterIfNeeded(at: writerClockTime) else { return }
             guard let writerVideoInput, writerVideoInput.isReadyForMoreMediaData,
-                  let transformedBuffer = makeCanvasBuffer(from: sampleBuffer),
+                  let transformedBuffer = touchedUpFrame ?? makeCanvasBuffer(from: sampleBuffer),
                   let timedBuffer = retimed(transformedBuffer) else { return }
             if appendVideo(timedBuffer, to: writerVideoInput), let device = videoInput?.device {
                 frameDiagnostics?.inspect(
@@ -1131,7 +1161,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         appendVideo(timedSample, to: writerVideoInput)
     }
 
-    private func makeCanvasBuffer(from sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+    private func makeCanvasBuffer(from sampleBuffer: CMSampleBuffer, pool: CVPixelBufferPool? = nil) -> CMSampleBuffer? {
         guard let sourceBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
         canvasLock.lock()
         let selectedCanvas = canvas
@@ -1139,12 +1169,12 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         canvasLock.unlock()
 
         var destination: CVPixelBuffer?
-        guard let pixelBufferPool,
-              CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &destination) == kCVReturnSuccess,
+        guard let pool = pool ?? pixelBufferPool,
+              CVPixelBufferPoolCreatePixelBuffer(nil, pool, &destination) == kCVReturnSuccess,
               let destination else { return nil }
 
         let outputImage = FrameCompositor.aspectFill(
-            CIImage(cvPixelBuffer: sourceBuffer),
+            touchUp.apply(to: CIImage(cvPixelBuffer: sourceBuffer)),
             width: selectedCanvas.width,
             height: selectedCanvas.height,
             zoom: selectedZoom
@@ -1168,6 +1198,25 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                                                        sampleTiming: &timing,
                                                        sampleBufferOut: &outputSampleBuffer) == noErr else { return nil }
         return outputSampleBuffer
+    }
+
+    /// Camera mode with touch-up on: the frame is composed once, shown as the
+    /// preview and, while recording, written — the same pixels both ways.
+    private func composedCameraPreview(from sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+        canvasLock.lock()
+        let pool = screenPixelBufferPool
+        canvasLock.unlock()
+        guard let composed = makeCanvasBuffer(from: sampleBuffer, pool: pool) else { return nil }
+        CMSetAttachment(
+            composed,
+            key: kCMSampleAttachmentKey_DisplayImmediately,
+            value: kCFBooleanTrue,
+            attachmentMode: kCMAttachmentMode_ShouldNotPropagate
+        )
+        DispatchQueue.main.async { [weak self] in
+            self?.onScreenPreviewFrame?(composed)
+        }
+        return composed
     }
 
     private func makeSampleBuffer(
@@ -1281,7 +1330,9 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         mirrorInCompositor: Bool
     ) -> (image: CIImage, personBox: CGRect?)? {
         guard let buffer = latestCameraBuffer else { return nil }
-        var image = CIImage(cvPixelBuffer: buffer)
+        // Before the cutout and the compositor's flip, so the face box from
+        // the raw frame lines up and the mask's alpha is never touched.
+        var image = touchUp.apply(to: CIImage(cvPixelBuffer: buffer))
         if style.needsPersonMask {
             // Without a mask yet there is nothing to cut out, so the overlay is
             // skipped for that frame rather than showing an uncut rectangle.
