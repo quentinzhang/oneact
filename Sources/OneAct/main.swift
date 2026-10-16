@@ -3787,6 +3787,9 @@ private struct OneActApp {
                 format: CommandLine.arguments.contains("--prores") ? .proRes422 : .h264
             ))
         }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--aligner-test" {
+            Darwin.exit(ScriptAlignerSelfTest.run())
+        }
         if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--device-report" {
             Darwin.exit(DeviceReport.run())
         }
