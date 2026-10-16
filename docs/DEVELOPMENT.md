@@ -125,3 +125,39 @@ ProRes 验证可运行：
 ```
 
 色彩验收还需进行渲染 → 编码 → 解码 → sRGB 的完整往返检查。只检查 BT.709 文件标签，或源图与编码前图相同，不能证明最终播放颜色正确。当前输出色彩空间由 BT.709 Core Video 附件生成，以保持渲染与视频解码一致；自测包含灰阶、肤色和饱和彩色块的往返误差断言。
+
+## 上镜（Touch-up，未发布）
+
+OneAct 没有剪辑环节，画面上的样子必须在录制时就处理好。上镜只做三件事：补光、暖色、磨皮；不改脸型，满档也保持自然。设置在 CAMERA 行的 Touch-up 弹出面板中，存于 UserDefaults 的 `touchUp.enabled/light/warmth/smooth`；Reset 回到默认值（补光 35、暖色 +20、磨皮 40），不改变开关。
+
+- 代码：`TouchUp.swift`（设置、滤镜、`TouchUpStage`）、`FaceRegionTracker.swift`（人脸检测与平滑）、`TouchUpPanel.swift`（按钮与面板）、`TouchUpSelfTest.swift`、`TouchUpBenchmark.swift`。`main.swift` 只在相机帧进入合成前调用 `touchUp.apply(to:)`（`composedCameraLayer` 与 `makeCanvasBuffer`），并在采集回调里把相机帧交给人脸检测。
+- 作用范围：只处理摄像头图像，在抠像遮罩和合成器翻转之前，因此 alpha 和人脸坐标都不受影响；屏幕画面从不经过这些滤镜。
+- 滤镜：三个运行时编译的 Metal Core Image 内核（`CIKernel.kernels(withMetalString:)`，约 0.5 秒，启动时在后台预编译）。暖色是线性光下的通道增益（满档 R ×1.065、B ×0.89）；补光是 sRGB 编码值上的 `p + lift·p(1−p)²`，峰值在 1/3 处约 +0.08，黑白两端为零且单调，不会新增溢出。磨皮是单遍自引导滤波：在面部椭圆的外接矩形内求局部均值与方差（半径约为脸宽的 2.5%），方差相对阈值小的地方（肤质、噪点、瑕疵）向均值靠拢，大的地方（眼、眉、唇、发丝）保持原样；再乘以羽化的面部椭圆、基于局部均值的 CbCr 肤色范围、滑杆强度（平方根曲线，满档上限 0.7）和人脸存在度。遮罩为零的像素直接返回原始采样，面部以外逐字节不变。
+- 人脸检测：`VNDetectFaceRectanglesRequest`，在独立队列上处理长边 640 的缩小副本，最多每秒 15 次，上一帧未完成时跳过；取最大的人脸。人脸框和抠像的人物框一样经过死区与指数平滑，但跟随更快（缓动 0.45、死区 0.004）；连续 4 次检测不到后存在度逐步降到零并丢弃人脸框，因此「没有人脸就不磨皮」，也不会逐帧闪烁。翻转与更换摄像头时重置。
+- 关闭等价于原路径：开关关闭或三个滑杆都为零时 `apply` 原样返回同一个 `CIImage`；纯相机模式继续使用 `AVCaptureVideoPreviewLayer`。开启时纯相机模式每帧合成一次，既作为预览（收到第一帧合成画面后才切换图层），录制时也直接写入同一帧，不重复渲染。
+
+性能（`--touch-up-bench`，Apple M3 Max，合成帧 + 等待 GPU 完成，每帧毫秒，滑杆全部满档；屏幕源为 3456×2234，抠像使用 Blur 布局）：
+
+| 场景 | 相机输入 | 画布 | 关闭 | 开启 | 增加 |
+| --- | --- | --- | --- | --- | --- |
+| Camera | 1920×1080 | 1920×1080 | 0.54 | 1.28 | +0.74 |
+| Camera | 3840×2160 | 2560×1440 | 0.79 | 2.32 | +1.53 |
+| Screen + Camera（Cutout） | 1920×1080 | 1920×1080 | 1.26 | 2.20 | +0.94 |
+| Screen + Camera（Cutout） | 1920×1080 | 2560×1440 | 1.74 | 2.75 | +1.01 |
+| Screen + Camera（Cutout） | 3840×2160 | 2560×1440 | 2.38 | 4.66 | +2.28 |
+
+人脸检测在独立队列上每次约 5.4–6.0 ms（1080p／4K 输入）。在 1440p Cutout 下以 30 fps 持续 8 秒，同时运行人物分割和人脸检测：开启前后均为 30.1 fps，0 帧超时（开启时 p95 4.9 ms）。纯相机模式未开启上镜时预览不经过合成，开启后空闲预览也需要支付上表「开启」一列的成本。
+
+验证：
+
+```bash
+.build/arm64-apple-macosx/release/OneAct --self-test /tmp/oneact-self-test.mov
+.build/arm64-apple-macosx/release/OneAct --self-test /tmp/oneact-prores.mov --prores
+.build/arm64-apple-macosx/release/OneAct --layout-report /tmp/oneact-layout.png --touch-up
+.build/arm64-apple-macosx/release/OneAct --touch-up-bench
+.build/arm64-apple-macosx/release/OneAct --touch-up-still <照片> /tmp/oneact-touchup.png [--max]
+```
+
+`--self-test` 的 `touch_up=[…]` 段覆盖：关闭或滑杆为零时与原路径逐字节一致；合成噪点人脸在给定人脸框下面部噪点下降（默认约 −32%，满档约 −60%）、椭圆外像素零变化、虹膜与眉毛对比度保持 ≥92%；暖色使灰色 R 升 B 降（冷色相反）且幅度在几个色阶内；补光抬亮阴影、高光几乎不动、单调且不新增溢出；矩形画中画与抠像下摄像头范围以外的屏幕像素不变；人脸框死区、缓动与渐隐；设置持久化。`--layout-report --touch-up` 另外写出 `.touchup.png` 面板截图，并打印 `TOUCH_UP` 行（按钮与面板控件在录制中锁定、暂停时可用）。`--touch-up-still` 对一张照片做人脸检测并输出前后对比图，用于在没有摄像头时检查真实人脸上的效果。
+
+仍需真实摄像头确认：真实皮肤与不同肤色、光线下的磨皮观感和肤色遮罩覆盖；侧脸、低头、戴眼镜、多人入镜时的检测与跟随；快速转头时遮罩是否明显滞后；纯相机模式开关上镜时预览图层切换是否无闪烁；较低端 Apple Silicon 机型上的实际帧率。

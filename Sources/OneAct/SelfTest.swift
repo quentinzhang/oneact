@@ -22,6 +22,7 @@ enum WriterSelfTest {
             let colorSummary = try verifyVideoColorRoundTrip(format: format)
             try verifyCameraOutputLimit()
             try verifyLanczosUpscaling()
+            let touchUpSummary = try TouchUpSelfTest.run()
             let pauseSummary = try verifyPausedRecording(format: format)
             let mixSummary = try verifyAudioMixing()
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
@@ -107,7 +108,7 @@ enum WriterSelfTest {
             let decodedLuma = try decodedAverageLuma(url: url)
             guard decodedLuma > 0.05 else { throw SelfTestError.blackFrame }
             guard assetContainsAudio(url: url) else { throw SelfTestError.audioTrackMissing }
-            print("SELF_TEST_OK path=\(url.path) width=1080 height=1920 frames=90 codec=\(format.rawValue) audio=aac software_zoom_crop=verified software_zoom_clamped=verified screen_camera_pip=verified camera_frames=rect_circle_cutout_hidden cutout_placement=mask_anchored_uncropped camera_placement=drag_size_pan_verified screen_layouts=fit_fill_blur canvas_backdrop=verified transparent_corners=flattened iphone_mirroring_ratio=verified camera_format=[\(cameraFormatSummary)] camera_output_limit=verified lanczos_upscale=verified color_roundtrip=\(colorSummary) pause_resume=\(pauseSummary) audio_mix=\(mixSummary) average_luma=\(decodedLuma)")
+            print("SELF_TEST_OK path=\(url.path) width=1080 height=1920 frames=90 codec=\(format.rawValue) audio=aac software_zoom_crop=verified software_zoom_clamped=verified screen_camera_pip=verified camera_frames=rect_circle_cutout_hidden cutout_placement=mask_anchored_uncropped camera_placement=drag_size_pan_verified screen_layouts=fit_fill_blur canvas_backdrop=verified transparent_corners=flattened iphone_mirroring_ratio=verified camera_format=[\(cameraFormatSummary)] camera_output_limit=verified lanczos_upscale=verified color_roundtrip=\(colorSummary) pause_resume=\(pauseSummary) audio_mix=\(mixSummary) \(touchUpSummary) average_luma=\(decodedLuma)")
             return 0
         } catch {
             fputs("SELF_TEST_FAILED \(error.localizedDescription)\n", stderr)

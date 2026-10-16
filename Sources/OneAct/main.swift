@@ -133,6 +133,7 @@ private final class PreviewView: NSView {
     private let screenPreviewLayer = AVSampleBufferDisplayLayer()
     private var softwareZoom: CGFloat = 1
     private var captureMode: CaptureMode = .cameraOnly
+    private var composedCameraPreview = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -221,13 +222,30 @@ private final class PreviewView: NSView {
         )
     }
 
+    /// Touch-up changes the camera picture, which the live capture layer
+    /// cannot show. While it is on, camera mode previews the composed frames
+    /// instead — the ones being recorded. Switching on waits for the first of
+    /// them, so the live picture is never swapped for an empty layer.
+    func setComposedCameraPreview(_ composed: Bool) {
+        guard composed != composedCameraPreview else { return }
+        composedCameraPreview = composed
+        guard !composed, captureMode == .cameraOnly else { return }
+        previewLayer.isHidden = false
+        screenPreviewLayer.isHidden = true
+        screenPreviewLayer.sampleBufferRenderer.flush()
+    }
+
     func displayComposedFrame(_ sampleBuffer: CMSampleBuffer) {
-        guard captureMode == .screenAndCamera else { return }
+        guard captureMode == .screenAndCamera || composedCameraPreview else { return }
         let renderer = screenPreviewLayer.sampleBufferRenderer
         if renderer.status == .failed {
             renderer.flush()
         }
         renderer.enqueue(sampleBuffer)
+        if captureMode == .cameraOnly, screenPreviewLayer.isHidden {
+            screenPreviewLayer.isHidden = false
+            previewLayer.isHidden = true
+        }
     }
 }
 
@@ -413,6 +431,8 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private let segmentationQueue = DispatchQueue(label: "oneact.segmentation")
     private let maskLock = NSLock()
     private let ciContext: CIContext
+    /// Light, warmth and skin smoothing for the camera layer only.
+    let touchUp: TouchUpStage
     private let canvasLock = NSLock()
     private var canvas = CanvasOptions.defaultPreset
     private var softwareZoom: CGFloat = 1
@@ -504,6 +524,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         } else {
             ciContext = CIContext(options: [.useSoftwareRenderer: true])
         }
+        touchUp = TouchUpStage(context: ciContext)
         super.init()
         audioMixer.onMixedBuffer = { [weak self] sampleBuffer in
             self?.appendMixedAudio(sampleBuffer)
@@ -596,6 +617,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         maskLock.lock()
         personTracker.reset()
         maskLock.unlock()
+        touchUp.faceTracker.reset()
     }
 
     /// Mirroring is applied at the capture connection so that everything
@@ -782,6 +804,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         // A new device brings a new connection, which starts out with whatever
         // mirroring AVFoundation thinks the device wants.
         applyVideoMirroring()
+        touchUp.faceTracker.reset()
     }
 
     func startSession() {
@@ -945,6 +968,10 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
             let selectedMode = captureMode
             let selectedFrame = cameraFrameStyle
             canvasLock.unlock()
+            if let cameraBuffer = latestCameraBuffer,
+               selectedMode == .cameraOnly || selectedFrame.showsCamera {
+                touchUp.observe(cameraBuffer)
+            }
             if selectedMode == .screenAndCamera {
                 if selectedFrame.needsPersonMask, let cameraBuffer = latestCameraBuffer {
                     requestPersonMask(for: cameraBuffer)
@@ -959,12 +986,15 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                     renderEmptyCanvasPreview(timingFrom: sampleBuffer)
                 }
             }
+            let touchedUpFrame = selectedMode == .cameraOnly && touchUp.isActive
+                ? composedCameraPreview(from: sampleBuffer)
+                : nil
             guard selectedMode == .cameraOnly,
                   recording,
                   let writerClockTime = writerTime(for: sampleBuffer),
                   startWriterIfNeeded(at: writerClockTime) else { return }
             guard let writerVideoInput, writerVideoInput.isReadyForMoreMediaData,
-                  let transformedBuffer = makeCanvasBuffer(from: sampleBuffer),
+                  let transformedBuffer = touchedUpFrame ?? makeCanvasBuffer(from: sampleBuffer),
                   let timedBuffer = retimed(transformedBuffer) else { return }
             if appendVideo(timedBuffer, to: writerVideoInput), let device = videoInput?.device {
                 frameDiagnostics?.inspect(
@@ -1131,7 +1161,7 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         appendVideo(timedSample, to: writerVideoInput)
     }
 
-    private func makeCanvasBuffer(from sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+    private func makeCanvasBuffer(from sampleBuffer: CMSampleBuffer, pool: CVPixelBufferPool? = nil) -> CMSampleBuffer? {
         guard let sourceBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
         canvasLock.lock()
         let selectedCanvas = canvas
@@ -1139,12 +1169,12 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         canvasLock.unlock()
 
         var destination: CVPixelBuffer?
-        guard let pixelBufferPool,
-              CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &destination) == kCVReturnSuccess,
+        guard let pool = pool ?? pixelBufferPool,
+              CVPixelBufferPoolCreatePixelBuffer(nil, pool, &destination) == kCVReturnSuccess,
               let destination else { return nil }
 
         let outputImage = FrameCompositor.aspectFill(
-            CIImage(cvPixelBuffer: sourceBuffer),
+            touchUp.apply(to: CIImage(cvPixelBuffer: sourceBuffer)),
             width: selectedCanvas.width,
             height: selectedCanvas.height,
             zoom: selectedZoom
@@ -1168,6 +1198,25 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                                                        sampleTiming: &timing,
                                                        sampleBufferOut: &outputSampleBuffer) == noErr else { return nil }
         return outputSampleBuffer
+    }
+
+    /// Camera mode with touch-up on: the frame is composed once, shown as the
+    /// preview and, while recording, written — the same pixels both ways.
+    private func composedCameraPreview(from sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+        canvasLock.lock()
+        let pool = screenPixelBufferPool
+        canvasLock.unlock()
+        guard let composed = makeCanvasBuffer(from: sampleBuffer, pool: pool) else { return nil }
+        CMSetAttachment(
+            composed,
+            key: kCMSampleAttachmentKey_DisplayImmediately,
+            value: kCFBooleanTrue,
+            attachmentMode: kCMAttachmentMode_ShouldNotPropagate
+        )
+        DispatchQueue.main.async { [weak self] in
+            self?.onScreenPreviewFrame?(composed)
+        }
+        return composed
     }
 
     private func makeSampleBuffer(
@@ -1281,7 +1330,9 @@ private final class Recorder: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         mirrorInCompositor: Bool
     ) -> (image: CIImage, personBox: CGRect?)? {
         guard let buffer = latestCameraBuffer else { return nil }
-        var image = CIImage(cvPixelBuffer: buffer)
+        // Before the cutout and the compositor's flip, so the face box from
+        // the raw frame lines up and the mask's alpha is never touched.
+        var image = touchUp.apply(to: CIImage(cvPixelBuffer: buffer))
         if style.needsPersonMask {
             // Without a mask yet there is nothing to cut out, so the overlay is
             // skipped for that frame rather than showing an uncut rectangle.
@@ -1441,6 +1492,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let recenterButton = NSButton(title: "", target: nil, action: nil)
     private let mirrorButton = NSButton(title: "", target: nil, action: nil)
     private let videoEffectsButton = NSButton(title: "Video Effects…", target: nil, action: nil)
+    // Layout fixtures render the defaults and never write the user's look.
+    private lazy var touchUpControl = TouchUpControl(
+        settings: isLayoutReport ? .defaults : .stored(),
+        persists: !isLayoutReport
+    )
     private var cameraCaptureState: CameraCaptureState?
     private var qualityCheckRunning = false
     private let cameraSizeSlider = NSSlider(
@@ -1550,6 +1606,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if !isLayoutReport, activateExistingInstance() { return }
         buildMainMenu()
+        // Compiling the touch-up kernels takes about half a second. Do it now,
+        // off the main thread, rather than on the first frame that needs them.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let available = TouchUp.isAvailable
+            Task { @MainActor [weak self] in self?.touchUpControl.isAvailable = available }
+        }
         recorder = Recorder(previewLayer: previewView.previewLayer)
         configureScreenCapture()
         if isLayoutReport {
@@ -2192,7 +2254,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         // (zoom, flip) another: two short rows instead of one long one, with the
         // camera row next to CANVAS where the other output-framing settings live.
         let overlayRow = controlRow([frameGroup, sizeGroup, positionGroup], spacing: 16)
-        let cameraRow = controlRow([zoomGroup, flipGroup, videoEffectsButton], spacing: 16)
+        let cameraRow = controlRow([zoomGroup, flipGroup, touchUpControl.button, videoEffectsButton], spacing: 16)
         let canvasRow = controlRow([
             controlRow(ratioButtons, spacing: 5),
             verticalDivider(),
@@ -2316,6 +2378,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         recorder.setScreenLayoutMode(.blur)
         recorder.setScreenVerticalAlignment(.center)
         recorder.setCameraFrameStyle(.rectangle)
+        touchUpControl.onChange = { [weak self] settings in self?.applyTouchUp(settings, announce: true) }
+        applyTouchUp(touchUpControl.settings, announce: false)
         applyCanvasBackdrop(canvasBackdropWell.color, announce: false)
         window = NSWindow(
             contentRect: content.bounds,
@@ -2609,6 +2673,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         cameraSessionReady = enabled
         zoomSlider.isEnabled = enabled
         recenterButton.isEnabled = enabled
+        touchUpControl.isEditable = enabled && canConfigureComposition
         modeControl.isEnabled = enabled
         updateModeSpecificControls()
         updateRecordAvailability()
@@ -2725,6 +2790,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         // continuous shot; flipping between segments is a shot change, which is
         // exactly what a pause is for.
         mirrorButton.isEnabled = composition && cameraSessionReady
+        // A look that changed mid-segment would be a visible jump inside one
+        // continuous shot, so touch-up locks with the rest of the composition.
+        touchUpControl.isEditable = composition && cameraSessionReady
         videoEffectsButton.isEnabled = !qualityCheckRunning && cameraSessionReady
         updateModeSpecificControls()
     }
@@ -3240,6 +3308,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             : "Camera flip off · recorded as the camera sees it"
     }
 
+    private func applyTouchUp(_ settings: TouchUpSettings, announce: Bool) {
+        recorder.touchUp.update(settings)
+        previewView.setComposedCameraPreview(settings.isActive)
+        if announce { statusLabel.stringValue = touchUpControl.statusText }
+    }
+
     @objc private func recenterZoom() {
         zoomSlider.doubleValue = 1
         applySoftwareZoom(1, announce: true)
@@ -3371,6 +3445,33 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    /// Renders the Touch-up popover's content into its own PNG and pins a copy
+    /// above its button in the main render: a popover is a separate window,
+    /// which an off-screen render of the main window would otherwise miss.
+    private func writeTouchUpReport(outputPath: String, in contentView: NSView) {
+        guard let bitmap = touchUpControl.reportSnapshot() else {
+            print("TOUCH_UP_POPOVER missing")
+            return
+        }
+        if let data = bitmap.representation(using: .png, properties: [:]) {
+            let url = URL(fileURLWithPath: outputPath).deletingPathExtension().appendingPathExtension("touchup.png")
+            try? data.write(to: url)
+        }
+        let image = NSImage(size: bitmap.size)
+        image.addRepresentation(bitmap)
+        let button = touchUpControl.button
+        let anchor = button.convert(button.bounds, to: contentView)
+        let snapshot = NSImageView(frame: NSRect(
+            x: min(max(8, anchor.midX - bitmap.size.width / 2), contentView.bounds.width - bitmap.size.width - 8),
+            y: anchor.maxY + 6,
+            width: bitmap.size.width,
+            height: bitmap.size.height
+        ))
+        snapshot.image = image
+        contentView.addSubview(snapshot)
+        print("TOUCH_UP_POPOVER size=\(bitmap.size) anchor=\(anchor)")
     }
 
     /// Renders the teleprompter panel off-screen and reports the window
@@ -3577,6 +3678,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             stageBackdropDots?.alphaValue = 1
         }
         print("STAGE_BACKDROP presets=\(StageBackdropPreset.all.count) selected=\(selectedStageBackdropIndex) canvasWell=\(canvasBackdropWell.colorWellStyle == .expanded ? "expanded" : "other")")
+        if CommandLine.arguments.contains("--touch-up") {
+            var settings = TouchUpSettings.defaults
+            settings.enabled = true
+            touchUpControl.set(settings)
+        }
         print("OVERLAY_DECK frame=\(currentCameraFrameStyle.label) zoom=\((cameraZoomGroup?.isHidden ?? false) ? "hidden" : "visible") flip=\((cameraFlipGroup?.isHidden ?? false) ? "hidden" : "visible") size=\(cameraSizeSlider.minValue)–\(cameraSizeSlider.maxValue)")
         // The recording row is only reachable with a live capture session, so
         // render it on demand: it is the one layout where a control appears
@@ -3659,9 +3765,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 writePrompterReport(outputPath: outputPath)
             }
         }
+        if CommandLine.arguments.contains("--touch-up") {
+            writeTouchUpReport(outputPath: outputPath, in: contentView)
+        }
         print("LAYOUT_REPORT size=\(contentView.frame.size) ambiguous=\(contentView.hasAmbiguousLayout)")
         print("RECORD_ROW pause=\(pauseButton.isHidden ? "hidden" : pauseButton.title) meterGap=\(Int(recordButton.frame.minX - audioMeter.frame.maxX))pt meterEnabled=\(audioMeter.inputAvailable)")
         print("CONFIG_LOCK mode=\(modeControl.isEnabled) screenSource=\(chooseScreenButton.isEnabled) layout=\(screenLayoutControl.isEnabled) frame=\(cameraFrameControl.isEnabled) backdrop=\(canvasBackdropWell.isEnabled) zoom=\(zoomSlider.isEnabled) ratio=\(ratioButtons.first?.isEnabled ?? false) resolution=\(resolutionButtons.first?.isEnabled ?? false) devices=\(captureOptionsButton.isEnabled) format=\(recordingFormatControl.isEnabled)")
+        print("TOUCH_UP button=\(touchUpControl.button.isHidden ? "hidden" : "visible") buttonEnabled=\(touchUpControl.button.isEnabled) \(touchUpControl.reportDescription)")
         print("RECORDING_FORMAT selected=\(selectedRecordingFormat.rawValue) detail=\(recordingFormatDetail.stringValue)")
         for menuItem in NSApp.mainMenu?.items ?? [] {
             let shortcuts = (menuItem.submenu?.items ?? [])
@@ -3786,6 +3896,12 @@ private struct OneActApp {
                 outputPath: CommandLine.arguments[2],
                 format: CommandLine.arguments.contains("--prores") ? .proRes422 : .h264
             ))
+        }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--touch-up-bench" {
+            Darwin.exit(TouchUpBenchmark.run())
+        }
+        if CommandLine.arguments.count >= 4, CommandLine.arguments[1] == "--touch-up-still" {
+            Darwin.exit(TouchUpBenchmark.still(inputPath: CommandLine.arguments[2], outputPath: CommandLine.arguments[3]))
         }
         if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--device-report" {
             Darwin.exit(DeviceReport.run())
