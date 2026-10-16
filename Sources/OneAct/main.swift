@@ -335,27 +335,17 @@ private final class PrimaryRecordButton: NSButton {
 
     private var isRecordingAppearance = false
 
-    /// The global shortcut shown on the button; nil when it could not be
-    /// registered, so the button never advertises a key that does nothing.
-    var shortcutHint: String? = "⌥⌘R" {
+    /// Whether ⌥⌘R also works from other apps. It always works while OneAct
+    /// is in front, through the Recording menu.
+    var shortcutIsGlobal = true {
         didSet { refreshTitle() }
     }
 
     private func refreshTitle() {
-        let label = isRecordingAppearance ? "■  Stop" : "●  Record"
-        attributedTitle = ShortcutHint.title(
-            label,
-            key: shortcutHint,
-            font: .systemFont(ofSize: 14, weight: .semibold),
-            color: .white,
-            keyColor: NSColor.white.withAlphaComponent(0.9)
-        )
+        title = isRecordingAppearance ? "■  Stop" : "●  Record"
         let action = isRecordingAppearance ? "Stop recording" : "Start recording"
-        setAccessibilityLabel(action)
-        toolTip = shortcutHint.map { "\(action) (\($0), from any app)" } ?? action
+        toolTip = shortcutIsGlobal ? "\(action) (⌥⌘R, from any app)" : "\(action) (⌥⌘R)"
     }
-
-    var reportTitle: String { ShortcutHint.plain(attributedTitle) }
 
     func setRecordingAppearance(_ recording: Bool) {
         isRecordingAppearance = recording
@@ -1624,6 +1614,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let countdownLabel = NSTextField(labelWithString: "")
     private let pausedBadge = PausedBadge()
     private var pauseHotKeyRegistered = true
+    private var recordingMenu: NSMenu?
     private var spacePauseMonitor: Any?
     // Layout fixtures must neither read nor overwrite the user's saved script.
     private let teleprompter = TeleprompterController(
@@ -1901,6 +1892,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a")
         editMenuItem.submenu = editMenu
 
+        // Where Mac users look for shortcuts. The global hot keys take ⌥⌘R
+        // and ⌥⌘P before the menu sees them, so each fires once; if one could
+        // not be registered, the menu still answers while OneAct is in front.
+        // Titles and enabling come from validateMenuItem.
+        let recordingMenuItem = NSMenuItem()
+        mainMenu.addItem(recordingMenuItem)
+        let recordingMenu = NSMenu(title: "Recording")
+        let recordItem = recordingMenu.addItem(
+            withTitle: "Start Recording", action: #selector(toggleRecording), keyEquivalent: "r"
+        )
+        recordItem.keyEquivalentModifierMask = [.option, .command]
+        recordItem.target = self
+        let pauseItem = recordingMenu.addItem(
+            withTitle: "Pause Recording", action: #selector(togglePause), keyEquivalent: "p"
+        )
+        pauseItem.keyEquivalentModifierMask = [.option, .command]
+        pauseItem.subtitle = "Or press Space while OneAct is in front"
+        pauseItem.target = self
+        recordingMenuItem.submenu = recordingMenu
+        self.recordingMenu = recordingMenu
+
         let cameraMenuItem = NSMenuItem()
         mainMenu.addItem(cameraMenuItem)
         let cameraMenu = NSMenu(title: "Camera")
@@ -2012,11 +2024,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.togglePause()
         }
         hotKeys = [record, pause].compactMap { $0 }
-        // Another app holding a combination is no reason to fail, but the
-        // buttons must not show a shortcut that does nothing.
-        recordButton.shortcutHint = record == nil ? nil : "⌥⌘R"
+        // Another app holding a combination is no reason to fail. The
+        // Recording menu still answers to it while OneAct is in front; only
+        // "from any app" is no longer true, so the tooltips stop saying it.
+        recordButton.shortcutIsGlobal = record != nil
         pauseHotKeyRegistered = pause != nil
-        pausedBadge.globalShortcutAvailable = pause != nil
         setPauseButtonTitle(paused: recorder?.isPaused ?? false)
     }
 
@@ -2053,6 +2065,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             inOneActWindow: inOneAct,
             typing: typing
         )
+    }
+
+    /// "⌥⌘R" for a menu item's key equivalent, the way menus show it.
+    private static func shortcutText(_ item: NSMenuItem) -> String {
+        let mask = item.keyEquivalentModifierMask
+        var text = ""
+        if mask.contains(.control) { text += "⌃" }
+        if mask.contains(.option) { text += "⌥" }
+        if mask.contains(.shift) || item.keyEquivalent != item.keyEquivalent.lowercased() { text += "⇧" }
+        if mask.contains(.command) { text += "⌘" }
+        return text + item.keyEquivalent.uppercased()
     }
 
     /// Layout report: the decisions Space would get mid-take, from synthetic
@@ -3962,26 +3985,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusItem()
     }
 
-    /// Wide enough for "Resume [Space]", so Pause and Resume do not shift
-    /// the meter between them.
-    private static let pauseButtonWidth: CGFloat = 140
+    private static let pauseButtonWidth: CGFloat = 96
 
-    /// The button shows Space — the key for it while OneAct is in front. ⌥⌘P,
-    /// the one for other apps, is in the tooltip and the paused badge.
+    /// Plain words on the button; the keys are in the tooltip, the status
+    /// line during a take, and the Recording menu.
     private func setPauseButtonTitle(paused: Bool) {
-        let label = paused ? "Resume" : "Pause"
-        pauseButton.attributedTitle = ShortcutHint.title(
-            label,
-            key: "Space",
-            font: .systemFont(ofSize: NSFont.systemFontSize(for: .large)),
-            color: .controlTextColor,
-            keyColor: .secondaryLabelColor
-        )
+        pauseButton.title = paused ? "Resume" : "Pause"
         let action = paused ? "Resume recording" : "Pause recording"
-        pauseButton.setAccessibilityLabel(action)
         pauseButton.toolTip = pauseHotKeyRegistered
             ? "\(action) (Space, or ⌥⌘P from any app)"
-            : "\(action) (Space)"
+            : "\(action) (Space or ⌥⌘P)"
     }
 
     private func beginRecordingClock(fileName: String) {
@@ -4025,10 +4038,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             ? " · no screen source"
             : ""
         let audioNote = systemAudioCheckbox.state == .on ? " · system audio" : ""
-        statusLabel.stringValue = recorder.isPaused
-            ? "❙❙ Paused \(recordedClockText)\(sourceNote)\(audioNote) · \(recordingFileName)"
-            : "● Recording \(recordedClockText)\(sourceNote)\(audioNote) · \(recordingFileName)"
+        statusLabel.stringValue = Self.recordingStatusLine(
+            paused: recorder.isPaused,
+            clock: recordedClockText,
+            notes: sourceNote + audioNote,
+            fileName: recordingFileName
+        )
         updateStatusItem()
+    }
+
+    /// The one line on screen for the whole take, ending with the key for the
+    /// next pause or resume. The label truncates in the middle, so a long
+    /// file name gives way before the hint does.
+    private static func recordingStatusLine(paused: Bool, clock: String, notes: String, fileName: String) -> String {
+        paused
+            ? "❙❙ Paused \(clock)\(notes) · \(fileName) · Space to resume"
+            : "● Recording \(clock)\(notes) · \(fileName) · Space to pause"
     }
 
     private func endRecordingClock() {
@@ -4126,9 +4151,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             pausedBadge.isHidden = !paused
             recordButton.setPausedAppearance(paused)
             audioMeter.inputAvailable = true
-            statusLabel.stringValue = paused
-                ? "❙❙ Paused 01:12 · OneAct-20260813-030405.mov"
-                : "● Recording 01:12 · OneAct-20260813-030405.mov"
+            statusLabel.stringValue = Self.recordingStatusLine(
+                paused: paused,
+                clock: "01:12",
+                notes: "",
+                fileName: "OneAct-20260813-030405.mov"
+            )
         }
         // The card only appears after a real take, so render it on demand.
         // The sample file does not exist — the card falls back to the movie
@@ -4222,15 +4250,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             print("PAUSED_BADGE visible=\(!pausedBadge.isHidden) frame=\(pausedBadge.frame) insideStage=\(stage.insetBy(dx: 15, dy: 15).contains(pausedBadge.frame)) ambiguous=\(pausedBadge.hasAmbiguousLayout) text=\"\(pausedBadge.reportText)\"")
             print("SPACE_PAUSE \(spacePauseReport())")
         }
-        print("SHORTCUT_TITLES record=\"\(recordButton.reportTitle)\" recordFits=\(recordButton.intrinsicContentSize.width <= recordButton.frame.width) pause=\"\(ShortcutHint.plain(pauseButton.attributedTitle))\" pauseFits=\(pauseButton.isHidden || pauseButton.intrinsicContentSize.width <= pauseButton.frame.width) pauseTip=\"\(pauseButton.toolTip ?? "")\" recordTip=\"\(recordButton.toolTip ?? "")\"")
-        print("RECORD_ROW pause=\(pauseButton.isHidden ? "hidden" : ShortcutHint.plain(pauseButton.attributedTitle)) meterGap=\(Int(recordButton.frame.minX - audioMeter.frame.maxX))pt meterEnabled=\(audioMeter.inputAvailable)")
+        print("SHORTCUT_HINTS record=\"\(recordButton.title)\" recordTip=\"\(recordButton.toolTip ?? "")\" pause=\"\(pauseButton.title)\" pauseFits=\(pauseButton.isHidden || pauseButton.intrinsicContentSize.width <= pauseButton.frame.width) pauseTip=\"\(pauseButton.toolTip ?? "")\" status=\"\(statusLabel.stringValue)\" statusTruncated=\(statusLabel.intrinsicContentSize.width > statusLabel.frame.width)")
+        if let recordingMenu {
+            recordingMenu.update()
+            for item in recordingMenu.items {
+                print("RECORDING_MENU \(item.title)=\(Self.shortcutText(item)) enabled=\(item.isEnabled) subtitle=\"\(item.subtitle ?? "")\"")
+            }
+        }
+        print("RECORD_ROW pause=\(pauseButton.isHidden ? "hidden" : pauseButton.title) meterGap=\(Int(recordButton.frame.minX - audioMeter.frame.maxX))pt meterEnabled=\(audioMeter.inputAvailable)")
         print("CONFIG_LOCK mode=\(modeControl.isEnabled) screenSource=\(chooseScreenButton.isEnabled) layout=\(screenLayoutControl.isEnabled) frame=\(cameraFrameControl.isEnabled) backdrop=\(canvasBackdropWell.isEnabled) zoom=\(zoomSlider.isEnabled) ratio=\(ratioButtons.first?.isEnabled ?? false) resolution=\(resolutionButtons.first?.isEnabled ?? false) devices=\(captureOptionsButton.isEnabled) format=\(recordingFormatControl.isEnabled)")
         print("TOUCH_UP button=\(touchUpControl.button.isHidden ? "hidden" : "visible") buttonEnabled=\(touchUpControl.button.isEnabled) \(touchUpControl.reportDescription)")
         print("RECORDING_FORMAT selected=\(selectedRecordingFormat.rawValue) detail=\(recordingFormatDetail.stringValue)")
         for menuItem in NSApp.mainMenu?.items ?? [] {
             let shortcuts = (menuItem.submenu?.items ?? [])
                 .filter { !$0.keyEquivalent.isEmpty }
-                .map { "\($0.title)=⌘\($0.keyEquivalent)" }
+                .map { "\($0.title)=\(Self.shortcutText($0))" }
                 .joined(separator: " ")
             print("MAIN_MENU \(menuItem.submenu?.title ?? menuItem.title) [\(shortcuts)]")
         }
@@ -4243,6 +4277,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.cacheDisplay(in: contentView.bounds, to: representation)
         if let data = representation.representation(using: .png, properties: [:]) {
             try? data.write(to: URL(fileURLWithPath: outputPath))
+        }
+    }
+}
+
+/// Start/Stop and Pause/Resume read the recorder, wherever they appear — the
+/// Recording menu and the menu-bar item alike.
+extension AppDelegate: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let state = reportRecordingState ?? (recorder.isRecording, recorder.isPaused)
+        switch menuItem.action {
+        case #selector(toggleRecording):
+            menuItem.title = state.recording ? "Stop Recording" : "Start Recording"
+            return state.recording || recordButton.isEnabled
+        case #selector(togglePause):
+            menuItem.title = state.paused ? "Resume Recording" : "Pause Recording"
+            return state.recording && !qualityCheckRunning
+        default:
+            return true
         }
     }
 }
