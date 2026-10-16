@@ -3897,6 +3897,12 @@ private struct OneActApp {
                 format: CommandLine.arguments.contains("--prores") ? .proRes422 : .h264
             ))
         }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--touch-up-bench" {
+            Darwin.exit(TouchUpBenchmark.run())
+        }
+        if CommandLine.arguments.count >= 4, CommandLine.arguments[1] == "--touch-up-still" {
+            Darwin.exit(TouchUpBenchmark.still(inputPath: CommandLine.arguments[2], outputPath: CommandLine.arguments[3]))
+        }
         if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--device-report" {
             Darwin.exit(DeviceReport.run())
         }
