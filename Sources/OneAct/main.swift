@@ -2898,7 +2898,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleTeleprompter() {
-        let hadScript = teleprompter.hasSavedScript
+        let hadScript = teleprompter.hasScript
         teleprompter.toggle()
         statusLabel.stringValue = teleprompter.isVisible
             ? "Teleprompter on · click the script to edit it; it never appears in the recording"
@@ -3412,7 +3412,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         teleprompter.setScriptForDiagnostics(originalScript)
         print("PROMPTER_EDIT begin editing=\(teleprompter.isEditing) playEnabled=\(teleprompter.playControlEnabled)")
         teleprompter.commitEditing()
-        print("PROMPTER_EDIT commit editing=\(teleprompter.isEditing) playEnabled=\(teleprompter.playControlEnabled) saved=\(teleprompter.hasSavedScript)")
+        print("PROMPTER_EDIT commit editing=\(teleprompter.isEditing) playEnabled=\(teleprompter.playControlEnabled) hasScript=\(teleprompter.hasScript)")
         guard let representation = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { return }
         contentView.cacheDisplay(in: contentView.bounds, to: representation)
         if let data = representation.representation(using: .png, properties: [:]) {
