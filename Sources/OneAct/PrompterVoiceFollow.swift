@@ -1,25 +1,6 @@
 import AppKit
 import AVFoundation
 
-/// Which language Follow voice listens for.
-enum FollowVoiceLanguage: String, CaseIterable {
-    case automatic
-    case chinese
-    case english
-
-    var forced: ScriptLanguage? {
-        switch self {
-        case .automatic: nil
-        case .chinese: .chinese
-        case .english: .english
-        }
-    }
-}
-
-private enum FollowVoiceDefaults {
-    static let language = "teleprompter.followVoiceLanguage"
-}
-
 /// Follow voice: the teleprompter keeps pace with the presenter's voice.
 ///
 /// Glue between the on-device recognizer and the script aligner, plus the
@@ -67,16 +48,10 @@ final class PrompterVoiceFollow {
     /// permission prompt is up.
     private(set) var isActive = false
 
-    var languageChoice: FollowVoiceLanguage {
-        didSet {
-            guard languageChoice != oldValue else { return }
-            UserDefaults.standard.set(languageChoice.rawValue, forKey: FollowVoiceDefaults.language)
-            rebuildAligner(keepingPosition: true)
-            if isActive, transcriber.isRunning { startRecognition() }
-        }
-    }
-
-    /// The language actually listened for.
+    /// The language listened for: the script's own. The presenter reads the
+    /// script aloud, so its language is the one being spoken — a Chinese
+    /// script with English product names counts as Chinese, and the Chinese
+    /// recognizer hears those names too. There is nothing to choose.
     var language: ScriptLanguage { aligner.language }
 
     private let transcriber = OnDeviceTranscriber()
@@ -87,8 +62,6 @@ final class PrompterVoiceFollow {
     private var offScriptSince: TimeInterval?
 
     init() {
-        let stored = UserDefaults.standard.string(forKey: FollowVoiceDefaults.language)
-        languageChoice = stored.flatMap(FollowVoiceLanguage.init(rawValue:)) ?? .automatic
         transcriber.onUpdate = { [weak self] update in self?.handle(update) }
         transcriber.onProblem = { [weak self] problem in self?.fail(problem.message) }
     }
@@ -104,14 +77,8 @@ final class PrompterVoiceFollow {
     func setScript(_ text: String) {
         guard text != script else { return }
         script = text
-        rebuildAligner(keepingPosition: false)
+        aligner = ScriptAligner(script: script)
         if isActive, transcriber.isRunning { startRecognition() }
-    }
-
-    private func rebuildAligner(keepingPosition: Bool) {
-        let offset = aligner.nextCharacterLocation
-        aligner = ScriptAligner(script: script, language: languageChoice.forced)
-        if keepingPosition { aligner.reposition(toCharacterOffset: offset) }
     }
 
     /// The presenter moved the script by hand: what is on the reading line
@@ -263,18 +230,13 @@ final class PrompterFollowControls: NSObject {
     let toggle: NSButton
     let panel: NSStackView
     var onToggle: ((Bool) -> Void)?
-    var onLanguageChange: ((FollowVoiceLanguage) -> Void)?
 
-    private let languageButton: NSButton
     private let statusLabel: NSTextField
     private var tint: NSColor = .white
     private var isOn = false
-    private var languageTitle = "EN"
-    private var currentChoice: FollowVoiceLanguage = .automatic
 
     override init() {
         toggle = NSButton(title: "", target: nil, action: nil)
-        languageButton = NSButton(title: "", target: nil, action: nil)
         statusLabel = NSTextField(labelWithString: "")
         panel = NSStackView()
         super.init()
@@ -290,19 +252,13 @@ final class PrompterFollowControls: NSObject {
         toggle.widthAnchor.constraint(equalToConstant: 22).isActive = true
         toggle.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
-        languageButton.isBordered = false
-        languageButton.bezelStyle = .regularSquare
-        languageButton.target = self
-        languageButton.action = #selector(showLanguageMenu)
-        languageButton.setContentHuggingPriority(.required, for: .horizontal)
-
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 110).isActive = true
 
-        panel.setViews([languageButton, statusLabel], in: .leading)
+        panel.setViews([statusLabel], in: .leading)
         panel.orientation = .horizontal
         panel.alignment = .centerY
         panel.spacing = 6
@@ -319,64 +275,20 @@ final class PrompterFollowControls: NSObject {
         tint = color
         toggle.contentTintColor = isOn ? .controlAccentColor : color
         statusLabel.textColor = color.withAlphaComponent(0.7)
-        renderLanguageTitle()
     }
 
-    func update(status: PrompterVoiceFollow.Status) {
+    func update(status: PrompterVoiceFollow.Status, language: ScriptLanguage) {
         statusLabel.stringValue = status.label
         if case .unavailable(let message) = status {
             statusLabel.toolTip = message
         } else {
-            statusLabel.toolTip = nil
+            let name = language == .chinese ? "Chinese" : "English"
+            statusLabel.toolTip = "Listening for \(name), the language of the script."
         }
-    }
-
-    func update(choice: FollowVoiceLanguage, resolved: ScriptLanguage) {
-        currentChoice = choice
-        languageTitle = resolved == .chinese ? "中文" : "EN"
-        let name = resolved == .chinese ? "Chinese (Simplified)" : "English"
-        languageButton.toolTip = choice == .automatic
-            ? "Listening for \(name) · chosen from the script. Click to change."
-            : "Listening for \(name). Click to change."
-        renderLanguageTitle()
-    }
-
-    private func renderLanguageTitle() {
-        languageButton.attributedTitle = NSAttributedString(
-            string: languageTitle + " ▾",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: tint
-            ]
-        )
     }
 
     @objc private func toggleClicked() {
         onToggle?(toggle.state == .on)
-    }
-
-    @objc private func showLanguageMenu() {
-        let menu = NSMenu()
-        let items: [(String, FollowVoiceLanguage)] = [
-            ("Automatic (from the script)", .automatic),
-            ("Chinese (Simplified)", .chinese),
-            ("English", .english)
-        ]
-        for (title, choice) in items {
-            let item = NSMenuItem(title: title, action: #selector(languagePicked(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = choice.rawValue
-            item.state = choice == currentChoice ? .on : .off
-            menu.addItem(item)
-        }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: languageButton.bounds.height + 2), in: languageButton)
-    }
-
-    @objc private func languagePicked(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let choice = FollowVoiceLanguage(rawValue: raw) else { return }
-        currentChoice = choice
-        onLanguageChange?(choice)
     }
 }
 

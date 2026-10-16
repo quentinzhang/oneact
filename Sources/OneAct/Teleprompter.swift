@@ -923,11 +923,6 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         followControls.onToggle = { [weak self] enabled in
             self?.setFollowVoice(enabled)
         }
-        followControls.onLanguageChange = { [weak self] choice in
-            guard let self else { return }
-            self.voiceFollow.languageChoice = choice
-            self.applyFollowVoiceMode()
-        }
     }
 
     private func setFollowVoice(_ enabled: Bool) {
@@ -950,15 +945,14 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     private func applyFollowVoiceMode() {
         for control in speedControls { control.isHidden = followVoiceEnabled }
         followControls.setOn(followVoiceEnabled)
-        followControls.update(choice: voiceFollow.languageChoice, resolved: voiceFollow.language)
-        followControls.update(status: voiceFollow.status)
+        followControls.update(status: voiceFollow.status, language: voiceFollow.language)
         playButton?.toolTip = followVoiceEnabled
             ? "Start or pause following your voice"
             : "Start or pause scrolling"
     }
 
     private func followStatusChanged(_ status: PrompterVoiceFollow.Status) {
-        followControls.update(status: status)
+        followControls.update(status: status, language: voiceFollow.language)
         switch status {
         case .unavailable(let message):
             guard followVoiceEnabled else { return }
@@ -1027,7 +1021,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     }
 
     var followVoiceDiagnostics: String {
-        "enabled=\(followVoiceEnabled) language=\(voiceFollow.language.rawValue) choice=\(voiceFollow.languageChoice.rawValue) speed_hidden=\(speedControls.allSatisfy(\.isHidden)) toggle_state=\(followControls.toggle.state == .on)"
+        "enabled=\(followVoiceEnabled) language=\(voiceFollow.language.rawValue) speed_hidden=\(speedControls.allSatisfy(\.isHidden)) toggle_state=\(followControls.toggle.state == .on)"
     }
 
     /// Traverses the whole script in `wordCount / wordsPerMinute` minutes, so the
