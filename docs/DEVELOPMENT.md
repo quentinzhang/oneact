@@ -72,16 +72,19 @@ v0.14 在 Screen + Camera 模式下新增摄像头画中画样式：Rectangle（
 - Canvas Ratio 与 Resolution 独立：比例提供 16:9、4:3、1:1、9:16、4:5、3:4（默认 16:9 横屏），分辨率提供 720p、1080p、1440p；界面同时显示最终输出像素尺寸
 - iPhone Mirroring 窄窗口按原始比例配置 ScreenCaptureKit 输出，不再独立放大宽度制造空白；单窗口采集同时忽略系统窗口阴影
 - 将采集帧裁切/缩放到精确画布像素尺寸后，以 H.264 或 ProRes 422 `.mov` 写入（FORMAT 行选择）
+- 点击录制直接开始，不弹保存面板：录像写入录像文件夹，默认 `~/Movies/OneAct`（沙盒内经 `com.apple.security.assets.movies.read-write` 访问，首次录制时创建），文件名 `OneAct-<yyyyMMdd-HHmmss>.mov`，同一秒内重名时追加 `-2`、`-3`。录制下拉菜单的 Save To 组与 File 菜单可改用其他文件夹：所选文件夹存为安全作用域书签（`com.apple.security.files.bookmarks.app-scope`），重启后重新打开；打不开时（硬盘未接、网络卷未挂载，解析时不挂载、不弹界面）本次录像回退到默认文件夹并在状态栏说明一次，所选文件夹本身保留。实现见 `RecordingsFolder.swift`
+- 停止录制后，预览舞台底部出现非模态卡片（`RecordingCard.swift`）：Play 用 Quick Look 就地回看（App delegate 作为 QLPreviewPanel 控制器）；Rename 就地改名，Return 确认、Esc 取消，自动保留 `.mov`，拒绝含 `/`、`:` 或以 `.` 开头的名字，不覆盖已有文件；Show in Finder；拖动缩略图（首帧）即以复制方式把文件拖进 Finder 或其他 App；Discard & Retake 把文件移到废纸篓（可放回原处，失败时不会退而直接删除）并回到待录状态。× 或 Esc 关闭卡片、开始下一段录制都保留文件；卡片持有所在文件夹的访问权，录制后换文件夹也不影响这张卡片的操作。录制结束不再自动打开 Finder
 - `--device-report` 输出设备与系统效果支持状态
 - `--self-test <path> [--prores]` 生成并验证 1080 × 1920 的合成视频写入链路，包含三种画中画样式（含抠像遮罩缩放）、缩放钳制与透明源圆角压底的像素校验；抠像另有一组专门的校验：用手工填的单通道遮罩摆一个偏右且比瞄准区更宽的人，断言包围盒提取的数值（含行方向翻转）、人物被居中到瞄准区、左右两边都完整落在画布内、周围仍是屏幕画面；再把画面与包围盒一起镜像，断言人物落在同一个矩形里——因为版面锚在人身上，两个翻转同步时位置不变，不同步则会差出半幅画面
-- 标准 Edit 菜单（Undo/Redo/Cut/Copy/Paste/Select All），⌘V 等快捷键在脚本编辑器和系统保存面板里均可用
+- 标准 Edit 菜单（Undo/Redo/Cut/Copy/Paste/Select All），⌘V 等快捷键在脚本编辑器、卡片改名框和系统文件夹选择面板里均可用
 - 脚本就地编辑：点击浮层文字直接进入编辑态（边框变高亮色提示），Esc 或点击浮层外自动保存，无模态弹窗；首次打开且无已存脚本时自动进入编辑态；录制下拉菜单保留 Edit Teleprompter Script… 入口；录制中脚本锁定
 - 启动时若已有同 bundle id 的实例在运行，激活该实例并退出自己，避免两个副本共用同一份偏好与提词稿互相覆盖
 - 提词稿仅在用户实际写入时落盘；占位说明文字与离屏诊断都不会写入 Application Support
 - 提词器为预览舞台顶部的融合浮层：实现为主窗口的无边框子窗口（贴合顶部、随移动/缩放同步），因此可携带 `sharingType = .none`——脚本不会出现在任何屏幕录制里（本 App 自己的合成录制、第三方会议共享均不可见）；字号 22–60pt、语速为乌龟→兔子滑杆（60–700 词当量/分，以自然语速为中点的两段线性映射；CJK 按 1.7 字 = 1 词当量折算，中英文同一档位语速一致；按真实经过时间积分，不受主线程负载影响），开始滚动有约 2.5 秒缓起、列宽上限 620pt、文字上下渐隐；幕布提供 Graphite / Midnight / Paper 三种预设，文字与控件颜色随幕布适配；脚本存在 Application Support/OneAct/script.txt
 - 提词器打开时录制前插入 3-2-1 倒计时（预览区居中显示），倒计时结束后开始录制并同步开始滚动；停止录制时停止滚动
 - 提词器「跟随语音」：本机语音识别追踪朗读位置，滚动跟着说话走，停顿即停、临场发挥原地等待；详见下文「提词器跟随语音」
-- `--layout-report <path.png> [--screen-mode] [--min-size] [--prompter] [--cutout]` 离屏渲染主界面并输出 PNG，无需摄像头/麦克风授权即可检查布局，并打印录制菜单内容与 `OVERLAY_DECK`（当前画中画样式、ZOOM 与 FLIP 是否折叠、SIZE 区间）；带 `--prompter` 时另外渲染提词浮层、打印其 sharingType / 子窗口关系，并走一遍就地编辑的 begin/commit 状态循环；`--cutout` 与 `--screen-mode` 同用可检查抠像下折叠掉 Zoom 行后的版面
+- `--layout-report <path.png> [--screen-mode] [--min-size] [--prompter] [--cutout]` 离屏渲染主界面并输出 PNG，无需摄像头/麦克风授权即可检查布局，并打印录制菜单内容与 `OVERLAY_DECK`（当前画中画样式、ZOOM 与 FLIP 是否折叠、SIZE 区间）；带 `--prompter` 时另外渲染提词浮层、打印其 sharingType / 子窗口关系，并走一遍就地编辑的 begin/commit 状态循环；`--cutout` 与 `--screen-mode` 同用可检查抠像下折叠掉 Zoom 行后的版面；`--saved-card [--renaming]` 渲染录制后的卡片（示例文件不存在，不触碰磁盘），打印 `SAVED_CARD`（位置是否在舞台内、布局是否有歧义、各按钮是否被压缩）
+- `--save-flow-check` 无摄像头、无点击地走一遍录像落盘路径：默认文件夹创建与 AVAssetWriter 写入、同秒重名、首帧回读、书签选择后模拟重启重新打开、改名与非法名、移到废纸篓。需在已签名的 App 内运行（`build/OneAct.app/Contents/MacOS/OneAct --save-flow-check`）才带有沙盒与权限；书签写入独立的偏好域，不改动用户的文件夹选择。会在废纸篓留下一个 `OneAct save-flow check.mov`
 - Camera 行显示当前实际生效的 macOS 视频效果，点击可打开系统效果面板。纯相机输出按实际输入、比例裁切和软件缩放限制尺寸，发生限制时显示 `camera limit`，悬停可查看输入/输出尺寸；分辨率选项是期望上限。录制开始后文件尺寸保持固定，屏幕合成模式不受相机分辨率限制。系统效果在 OneAct 收到画面之前处理，应用不能从已虚化的帧中恢复原始细节。
 - `Camera → Capture Quality Check (8 seconds)` 在当前 Camera 会话中录制本地诊断片段，于约 2、4、6 秒保存配对的摄像头输入 PNG、编码前 PNG，以及包含真实帧尺寸、系统效果状态、写入器时间戳的 `frames.json`。保存在应用支持目录的 `OneAct/Diagnostics`；普通录制不保存诊断帧。输入 PNG 是 AVFoundation 交付的未编码帧，仍可能包含系统效果，并非传感器 RAW。
 - `--camera-diagnostic <directory> [--legacy-camera] [--portrait] [--zoom <1…3>] [--prores]` 用同一 Recorder 做无界面诊断；prores 选项验证 ProRes 422 写入；legacy 选项仅用于比较默认格式策略，portrait 请求 1440×2560 画布以实测竖屏采集和输出限制，zoom 用于检验缩放后的输出上限。命令行直接启动和正常窗口启动可能获得不同的系统效果状态，因此对用户所见效果的排查应优先使用窗口内菜单。
@@ -100,6 +103,7 @@ swift build -c release
 ```bash
 .build/arm64-apple-macosx/release/OneAct --device-report
 .build/arm64-apple-macosx/release/OneAct --self-test /tmp/oneact-self-test.mov
+build/OneAct.app/Contents/MacOS/OneAct --save-flow-check
 .build/arm64-apple-macosx/release/OneAct --layout-report /tmp/oneact-layout.png --screen-mode
 ```
 

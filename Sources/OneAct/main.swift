@@ -6,6 +6,7 @@ import CoreMedia
 import CoreVideo
 import Darwin
 import Metal
+import Quartz
 import Vision
 
 private struct CanvasPreset: Equatable {
@@ -1541,6 +1542,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pausedAccumulated: TimeInterval = 0
     private var pauseBeganAt: Date?
     private var recordingFileName = ""
+    // Layout fixtures neither read nor change the saved folder choice.
+    private lazy var recordingsFolder = RecordingsFolder(readsStoredFolder: !isLayoutReport)
+    private let recordingCard = RecordingCardView(frame: .zero)
+    /// The folder the current take is being written into. Held so a chosen
+    /// folder's access outlives a mid-take change of folder.
+    private var activeTakeFolder: RecordingsFolder.Access?
+    /// The finished take the card offers, with the folder access its rename
+    /// and trash actions still need.
+    private var presentedRecording: (url: URL, folder: RecordingsFolder.Access)?
+    /// Covers the countdown, where the recorder is not yet recording: the
+    /// global hotkey bypasses the disabled Record button and would otherwise
+    /// start a second take on top of the first.
+    private var takeStarting = false
     private let systemAudioTap = SystemAudioTap()
     private var statusItem: NSStatusItem?
     private var hotKeys: [GlobalHotKey] = []
@@ -1828,6 +1842,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quitItem.target = NSApp
         appMenuItem.submenu = appMenu
 
+        let fileMenuItem = NSMenuItem()
+        mainMenu.addItem(fileMenuItem)
+        let fileMenu = NSMenu(title: "File")
+        let showFolderItem = fileMenu.addItem(
+            withTitle: "Show Recordings Folder", action: #selector(showRecordingsFolder), keyEquivalent: ""
+        )
+        showFolderItem.target = self
+        let chooseFolderItem = fileMenu.addItem(
+            withTitle: "Choose Recordings Folder…", action: #selector(chooseRecordingsFolder), keyEquivalent: ""
+        )
+        chooseFolderItem.target = self
+        fileMenuItem.submenu = fileMenu
+
         // AppKit routes Cmd-key equivalents through the main menu before the
         // responder chain, so a text view only gets paste if this menu exists.
         let editMenuItem = NSMenuItem()
@@ -2075,6 +2102,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         countdownLabel.alignment = .center
         countdownLabel.isHidden = true
         previewStage.addSubview(countdownLabel)
+        // Above the preview and on the stage's bottom edge, clear of the
+        // teleprompter, which hugs the top.
+        recordingCard.translatesAutoresizingMaskIntoConstraints = false
+        recordingCard.isHidden = true
+        previewStage.addSubview(recordingCard)
+        wireRecordingCard()
         previewView.onDragBegan = { [weak self] point in self?.beginPreviewDrag(at: point) }
         previewView.onDragMoved = { [weak self] point in self?.updatePreviewDrag(to: point) }
         previewView.onDragEnded = { [weak self] in self?.activeDrag = nil }
@@ -2339,6 +2372,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             stageDots.centerYAnchor.constraint(equalTo: previewStage.centerYAnchor),
             countdownLabel.centerXAnchor.constraint(equalTo: previewStage.centerXAnchor),
             countdownLabel.centerYAnchor.constraint(equalTo: previewStage.centerYAnchor),
+            recordingCard.centerXAnchor.constraint(equalTo: previewStage.centerXAnchor),
+            recordingCard.bottomAnchor.constraint(equalTo: previewStage.bottomAnchor, constant: -16),
+            recordingCard.widthAnchor.constraint(lessThanOrEqualTo: previewStage.widthAnchor, constant: -32),
             previewView.centerXAnchor.constraint(equalTo: previewStage.centerXAnchor),
             previewView.centerYAnchor.constraint(equalTo: previewStage.centerYAnchor),
             previewView.widthAnchor.constraint(lessThanOrEqualTo: previewStage.widthAnchor, constant: -36),
@@ -2518,6 +2554,39 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 menu.addItem(item)
             }
         }
+
+        // QuickTime keeps "Save to" in this same menu: where the take goes is
+        // decided with the devices, before Record, never in a panel after it.
+        menu.addItem(NSMenuItem.sectionHeader(title: "Save To"))
+        let defaultFolderItem = NSMenuItem(
+            title: RecordingsFolder.displayPath(for: RecordingsFolder.defaultFolder),
+            action: #selector(useDefaultRecordingsFolder),
+            keyEquivalent: ""
+        )
+        defaultFolderItem.target = self
+        defaultFolderItem.state = recordingsFolder.isDefault ? .on : .off
+        defaultFolderItem.isEnabled = !locked
+        menu.addItem(defaultFolderItem)
+        if !recordingsFolder.isDefault {
+            let chosenFolderItem = NSMenuItem(
+                title: recordingsFolder.displayPath,
+                action: #selector(showRecordingsFolder),
+                keyEquivalent: ""
+            )
+            chosenFolderItem.target = self
+            chosenFolderItem.state = .on
+            chosenFolderItem.toolTip = "Show this folder in Finder"
+            chosenFolderItem.isEnabled = !locked
+            menu.addItem(chosenFolderItem)
+        }
+        let chooseFolderItem = NSMenuItem(
+            title: "Choose Recordings Folder…",
+            action: #selector(chooseRecordingsFolder),
+            keyEquivalent: ""
+        )
+        chooseFolderItem.target = self
+        chooseFolderItem.isEnabled = !locked
+        menu.addItem(chooseFolderItem)
 
         menu.addItem(.separator())
         let scriptItem = NSMenuItem(
@@ -3405,6 +3474,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !qualityCheckRunning else { return }
         if recorder.isRecording {
             recordButton.isEnabled = false
+            let takeLength = recordedClockText
+            let takeFolder = activeTakeFolder
+            activeTakeFolder = nil
             endRecordingClock()
             teleprompter.stopScrolling()
             teleprompter.unlockAfterRecording()
@@ -3416,18 +3488,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updatePauseAffordances()
                 switch result {
                 case .success(let outcome):
+                    let path = RecordingsFolder.displayPath(for: outcome.url)
                     if outcome.hasAudio {
-                        self.statusLabel.stringValue = "Saved with audio: \(outcome.url.path)"
+                        self.statusLabel.stringValue = "Saved with audio · \(path)"
                     } else if self.microphoneDisabled && self.systemAudioCheckbox.state == .off {
                         // Exactly what was asked for; warning about it would
                         // teach people to ignore the warning that matters.
-                        self.statusLabel.stringValue = "Saved (video only): \(outcome.url.path)"
+                        self.statusLabel.stringValue = "Saved (video only) · \(path)"
                     } else {
-                        self.statusLabel.stringValue = "Warning: saved without audio samples: \(outcome.url.path)"
+                        self.statusLabel.stringValue = "Warning: saved without audio samples · \(path)"
                     }
-                    NSWorkspace.shared.selectFile(
-                        outcome.url.path,
-                        inFileViewerRootedAtPath: outcome.url.deletingLastPathComponent().path
+                    if let missing = self.recordingsFolder.takeUnavailableNotice() {
+                        self.statusLabel.stringValue += " · “\(missing)” was unavailable, so it went to Movies"
+                    }
+                    // The card replaces revealing every take in Finder, which
+                    // pulled Finder in front of the app after each recording.
+                    self.presentRecordingCard(
+                        url: outcome.url,
+                        length: takeLength,
+                        folder: takeFolder ?? self.recordingsFolder.current
                     )
                 case .failure(let error):
                     self.statusLabel.stringValue = "Recording failed: \(error.localizedDescription)"
@@ -3451,35 +3530,49 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 return
             }
-            let panel = NSSavePanel()
-            panel.nameFieldStringValue = "OneAct-\(timestamp()).mov"
-            panel.allowedContentTypes = [.quickTimeMovie]
-            panel.begin { [weak self] response in
-                guard let self, response == .OK, let url = panel.url else { return }
-                self.recordButton.isEnabled = false
-                self.teleprompter.lockForRecording()
-                // An open teleprompter means the presenter is about to read, so
-                // recording waits out a countdown and the script starts rolling
-                // together with the first frame.
-                let leadIn = self.teleprompter.isVisible ? 3 : 0
-                self.statusLabel.stringValue = leadIn > 0 ? "Starting in \(leadIn)…" : "Starting…"
-                self.runCountdown(from: leadIn) {
-                    self.countdownLabel.isHidden = true
-                    self.recorder.startRecording(to: url) { result in
-                        switch result {
-                        case .success:
-                            self.updateConfigurationAvailability()
-                            self.recordButton.setRecordingAppearance(true)
-                            self.recordButton.isEnabled = true
-                            self.teleprompter.startScrolling()
-                            self.beginRecordingClock(fileName: url.lastPathComponent)
-                            self.updatePauseAffordances()
-                        case .failure(let error):
-                            self.teleprompter.unlockAfterRecording()
-                            self.updateConfigurationAvailability()
-                            self.updateRecordAvailability()
-                            self.statusLabel.stringValue = "Recording failed: \(error.localizedDescription)"
-                        }
+            guard !takeStarting else { return }
+            // Starting the next take keeps the last one: the card goes, the
+            // file stays where it was saved.
+            dismissRecordingCard()
+            // The folder is settled before Record is pressed, so pressing it
+            // starts the take — no save panel between deciding to speak and
+            // speaking, and none in front of every retake.
+            let destination: RecordingsFolder.Destination
+            do {
+                destination = try recordingsFolder.nextDestination(timestamp: timestamp())
+            } catch {
+                statusLabel.stringValue = "Can't save to \(recordingsFolder.displayPath): \(error.localizedDescription) · choose another folder from the record menu"
+                return
+            }
+            let url = destination.url
+            activeTakeFolder = destination.folder
+            takeStarting = true
+            recordButton.isEnabled = false
+            teleprompter.lockForRecording()
+            // An open teleprompter means the presenter is about to read, so
+            // recording waits out a countdown and the script starts rolling
+            // together with the first frame.
+            let leadIn = teleprompter.isVisible ? 3 : 0
+            statusLabel.stringValue = leadIn > 0 ? "Starting in \(leadIn)…" : "Starting…"
+            runCountdown(from: leadIn) { [weak self] in
+                guard let self else { return }
+                self.countdownLabel.isHidden = true
+                self.recorder.startRecording(to: url) { result in
+                    self.takeStarting = false
+                    switch result {
+                    case .success:
+                        self.updateConfigurationAvailability()
+                        self.recordButton.setRecordingAppearance(true)
+                        self.recordButton.isEnabled = true
+                        self.teleprompter.startScrolling()
+                        self.beginRecordingClock(fileName: url.lastPathComponent)
+                        self.updatePauseAffordances()
+                    case .failure(let error):
+                        self.activeTakeFolder = nil
+                        self.teleprompter.unlockAfterRecording()
+                        self.updateConfigurationAvailability()
+                        self.updateRecordAvailability()
+                        self.statusLabel.stringValue = "Recording failed: \(error.localizedDescription)"
                     }
                 }
             }
@@ -3511,6 +3604,146 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         snapshot.image = image
         contentView.addSubview(snapshot)
         print("TOUCH_UP_POPOVER size=\(bitmap.size) anchor=\(anchor)")
+    }
+
+    // MARK: Finished take
+
+    private func wireRecordingCard() {
+        recordingCard.onPlay = { [weak self] in self?.playPresentedRecording() }
+        recordingCard.onRename = { [weak self] name in
+            self?.renamePresentedRecording(to: name) ?? .failure(CocoaError(.fileNoSuchFile))
+        }
+        recordingCard.onShowInFinder = { [weak self] in
+            guard let url = self?.presentedRecording?.url else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+        recordingCard.onDiscard = { [weak self] in self?.discardPresentedRecording() }
+        recordingCard.onDismiss = { [weak self] in self?.dismissRecordingCard() }
+    }
+
+    private func presentRecordingCard(url: URL, length: String, folder: RecordingsFolder.Access) {
+        // A take that finished writing after the next one began — stop and
+        // start back to back on the hotkey — is saved; it just gets no card.
+        guard !takeStarting, !recorder.isRecording else { return }
+        presentedRecording = (url, folder)
+        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        let detail = [
+            length,
+            bytes.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) },
+            RecordingsFolder.displayPath(for: url.deletingLastPathComponent())
+        ].compactMap { $0 }.joined(separator: " · ")
+        recordingCard.show(url: url, detail: detail)
+    }
+
+    /// Closing the card keeps the file; only Discard & Retake removes it.
+    private func dismissRecordingCard() {
+        closeRecordingPreview()
+        recordingCard.hide()
+        presentedRecording = nil
+    }
+
+    private func renamePresentedRecording(to proposedName: String) -> Result<URL, Error> {
+        guard let (current, folder) = presentedRecording else { return .failure(CocoaError(.fileNoSuchFile)) }
+        do {
+            let renamed = try RecordingsFolder.rename(current, to: proposedName)
+            presentedRecording = (renamed, folder)
+            reloadRecordingPreview()
+            statusLabel.stringValue = "Renamed · \(RecordingsFolder.displayPath(for: renamed))"
+            return .success(renamed)
+        } catch {
+            statusLabel.stringValue = "Rename failed: \(error.localizedDescription)"
+            return .failure(error)
+        }
+    }
+
+    /// The retake path: the flubbed take goes to the Trash — recoverable with
+    /// Put Back, never deleted outright — and the recorder is ready again.
+    private func discardPresentedRecording() {
+        guard let url = presentedRecording?.url else { return }
+        closeRecordingPreview()
+        do {
+            try RecordingsFolder.moveToTrash(url)
+        } catch {
+            statusLabel.stringValue = "Couldn't move \(url.lastPathComponent) to the Trash: \(error.localizedDescription)"
+            return
+        }
+        dismissRecordingCard()
+        updateRecordAvailability()
+        statusLabel.stringValue = "Moved \(url.lastPathComponent) to the Trash · ready for the retake (⌥⌘R)"
+    }
+
+    private func playPresentedRecording() {
+        guard presentedRecording != nil, let panel = QLPreviewPanel.shared() else { return }
+        if panel.isVisible {
+            panel.reloadData()
+        } else {
+            panel.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    private func reloadRecordingPreview() {
+        guard QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(), panel.isVisible else { return }
+        panel.reloadData()
+    }
+
+    /// A preview still playing when the next take starts would be recorded
+    /// by the microphone.
+    private func closeRecordingPreview() {
+        guard QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(), panel.isVisible else { return }
+        panel.orderOut(nil)
+    }
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = self
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil
+    }
+
+    // MARK: Recordings folder
+
+    @objc private func chooseRecordingsFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use Folder"
+        panel.message = "New recordings are saved here. Record starts straight away, without asking."
+        panel.directoryURL = recordingsFolder.current.url
+        let apply: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            if RecordingsFolder.isDefaultFolder(url) {
+                self.useDefaultRecordingsFolder()
+                return
+            }
+            do {
+                try self.recordingsFolder.choose(url)
+                self.statusLabel.stringValue = "New recordings save to \(self.recordingsFolder.displayPath)"
+            } catch {
+                self.statusLabel.stringValue = "Couldn't use \(url.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+        if let window, window.isVisible {
+            panel.beginSheetModal(for: window, completionHandler: apply)
+        } else {
+            panel.begin(completionHandler: apply)
+        }
+    }
+
+    @objc private func useDefaultRecordingsFolder() {
+        recordingsFolder.resetToDefault()
+        statusLabel.stringValue = "New recordings save to \(recordingsFolder.displayPath)"
+    }
+
+    @objc private func showRecordingsFolder() {
+        let folder = recordingsFolder.current.url
+        // The default folder only exists after the first take.
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
     }
 
     /// Renders the teleprompter panel off-screen and reports the window
@@ -3762,11 +3995,35 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 ? "❙❙ Paused 01:12 · OneAct-20260813-030405.mov"
                 : "● Recording 01:12 · OneAct-20260813-030405.mov"
         }
+        // The card only appears after a real take, so render it on demand.
+        // The sample file does not exist — the card falls back to the movie
+        // icon — and no take is recorded as presented, so the card's actions
+        // find nothing on disk to act on.
+        if CommandLine.arguments.contains("--saved-card") {
+            let sample = RecordingsFolder.defaultFolder.appendingPathComponent("OneAct-20260813-030405.mov")
+            recordingCard.show(url: sample, detail: "01:12 · 48.2 MB · \(RecordingsFolder.displayPath(for: RecordingsFolder.defaultFolder))")
+            statusLabel.stringValue = "Saved with audio · \(RecordingsFolder.displayPath(for: sample))"
+        }
         if minimumSize {
             window.setContentSize(window.minSize)
         }
         guard let contentView = window.contentView else { return }
         window.layoutIfNeeded()
+        if CommandLine.arguments.contains("--saved-card") {
+            if CommandLine.arguments.contains("--renaming") {
+                recordingCard.beginRenaming()
+                window.layoutIfNeeded()
+            }
+            let stageBounds = previewStageView?.bounds ?? .zero
+            let cardFrame = recordingCard.frame
+            print("SAVED_CARD frame=\(cardFrame) insideStage=\(stageBounds.insetBy(dx: 15, dy: 15).contains(cardFrame)) renaming=\(recordingCard.isRenaming) ambiguous=\(recordingCard.hasAmbiguousLayout) actions=\(recordingCard.buttonTitles)")
+            for button in [recordingCard.playButton, recordingCard.renameButton, recordingCard.finderButton, recordingCard.discardButton] {
+                let clipped = button.frame.width < button.intrinsicContentSize.width - 0.5
+                print("SAVED_CARD_BUTTON \(button.title) width=\(Int(button.frame.width)) clipped=\(clipped)")
+            }
+        } else {
+            print("SAVED_CARD hidden=\(recordingCard.isHidden)")
+        }
         if let demoFlag = CommandLine.arguments.firstIndex(of: "--demo-scene") {
             guard CommandLine.arguments.indices.contains(demoFlag + 1),
                   let demoImage = NSImage(contentsOfFile: CommandLine.arguments[demoFlag + 1]) else {
@@ -3846,6 +4103,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if let data = representation.representation(using: .png, properties: [:]) {
             try? data.write(to: URL(fileURLWithPath: outputPath))
         }
+    }
+}
+
+extension AppDelegate: @preconcurrency QLPreviewPanelDataSource {
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        presentedRecording == nil ? 0 : 1
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        presentedRecording?.url as NSURL?
     }
 }
 
@@ -3968,6 +4235,9 @@ private struct OneActApp {
         if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--voice-follow-probe" {
             VoiceFollowProbe.run(requestPermission: CommandLine.arguments.contains("--request-permission"))
             RunLoop.main.run()
+        }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--save-flow-check" {
+            Darwin.exit(SaveFlowCheck.run())
         }
         if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--device-report" {
             Darwin.exit(DeviceReport.run())
