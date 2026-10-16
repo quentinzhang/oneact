@@ -5,6 +5,7 @@ private enum TeleprompterDefaults {
     static let fontSize = "teleprompter.fontSize"
     static let wordsPerMinute = "teleprompter.wordsPerMinute"
     static let backdrop = "teleprompter.backdrop"
+    static let followVoice = "teleprompter.followVoice"
 }
 
 /// Backdrop presets: a fixed, tasteful set instead of a color picker. Each pairs
@@ -167,6 +168,21 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     private var swatchButtons: [NSButton] = []
     private var tintedControls: [NSView] = []
 
+    /// Follow voice: the script keeps pace with the presenter's speech instead
+    /// of a set speed. Recognition, alignment and the scroll spring live in
+    /// PrompterVoiceFollow.swift; the teleprompter only routes to them.
+    let voiceFollow = PrompterVoiceFollow()
+    /// Long-form Follow voice problems, for the main window's status line.
+    var onStatusMessage: ((String) -> Void)?
+    private let followControls = PrompterFollowControls()
+    private let followScroller = PrompterFollowScroller()
+    private var followVoiceEnabled = UserDefaults.standard.bool(forKey: TeleprompterDefaults.followVoice)
+    /// Following could not start for this run, so the script rolls at the
+    /// set speed rather than standing still in front of the presenter.
+    private var followFallback = false
+    private var speedControls: [NSView] = []
+    private var isFollowing: Bool { followVoiceEnabled && !followFallback && scrollTimer != nil }
+
     private var currentBackdrop: TeleprompterBackdrop { TeleprompterBackdrop.all[backdropIndex] }
     var playControlEnabled: Bool { playButton?.isEnabled ?? true }
 
@@ -206,6 +222,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         } else {
             script = Self.placeholderScript
         }
+        wireFollowVoice()
     }
 
     /// Ties the overlay to the preview stage it should hug.
@@ -402,6 +419,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         textView.textContainer?.widthTracksTextView = true
         scrollView.documentView = textView
         self.textView = textView
+        followScroller.attach(textView: textView, scrollView: scrollView)
 
         let controlBar = makeControlBar()
         controlBar.translatesAutoresizingMaskIntoConstraints = false
@@ -481,12 +499,19 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
             action: #selector(increaseFont),
             width: 15
         )
+        // Follow voice takes the speed slider's place: with the voice setting
+        // the pace, a speed would only be a second, contradictory answer.
+        speedControls = [
+            speedIcon("tortoise.fill", tooltip: "Slower"),
+            slider,
+            speedIcon("hare.fill", tooltip: "Faster")
+        ]
         let stack = NSStackView(views: [
             play,
             iconButton("arrow.up.to.line", tooltip: "Back to the top", action: #selector(scrollToTop)),
-            speedIcon("tortoise.fill", tooltip: "Slower"),
-            slider,
-            speedIcon("hare.fill", tooltip: "Faster"),
+            followControls.toggle
+        ] + speedControls + [
+            followControls.panel,
             smallerText,
             largerText
         ] + swatchButtons + [hint])
@@ -495,6 +520,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         stack.spacing = 6
         // The two text-size icons are one control in spirit — no gap between them.
         stack.setCustomSpacing(0, after: smallerText)
+        applyFollowVoiceMode()
         return stack
     }
 
@@ -566,6 +592,8 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
                 image.contentTintColor = preset.controls.withAlphaComponent(0.75)
             }
         }
+        followControls.applyTint(preset.controls)
+        followScroller.dimColor = preset.text.withAlphaComponent(0.42)
         for (index, swatch) in swatchButtons.enumerated() {
             let selected = index == backdropIndex
             swatch.layer?.borderWidth = selected ? 2 : 1
@@ -669,6 +697,9 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         textView.typingAttributes = attributes
         wordCount = Self.estimatedWordCount(of: script)
         updateReadingInset()
+        voiceFollow.setScript(script)
+        followScroller.layoutChanged()
+        applyFollowVoiceMode()
         scrollToTop()
     }
 
@@ -708,6 +739,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
 
     @objc private func scrollViewFrameChanged() {
         updateReadingInset()
+        followScroller.layoutChanged()
     }
 
     /// Padding above and below the text, so the first and last lines can still
@@ -731,6 +763,18 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
             scrollOffset = max(0, scrollView.contentView.bounds.origin.y)
             lastAppliedScrollY = scrollOffset
         }
+        // With Follow voice on, the same timer drives the follower instead.
+        // If following cannot start, the script rolls at the set speed and
+        // the status line says why.
+        followFallback = false
+        if followVoiceEnabled {
+            followFallback = !voiceFollow.start()
+            if !followFallback {
+                followScroller.begin(with: voiceFollow)
+            } else if case .unavailable(let message) = voiceFollow.status {
+                onStatusMessage?("Follow voice is unavailable, so the script scrolls at the set speed. \(message)")
+            }
+        }
         let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.advanceScroll() }
         }
@@ -745,10 +789,15 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         scrollTimer?.invalidate()
         scrollTimer = nil
         scrollStartedAt = nil
+        voiceFollow.stop()
         playButton?.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play")
     }
 
     private func advanceScroll() {
+        if isFollowing {
+            followScroller.tick(with: voiceFollow)
+            return
+        }
         guard let scrollView, let textView else { return }
         let distance = textView.frame.height - scrollView.contentSize.height
         guard distance > 0 else { return }
@@ -789,6 +838,127 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         if scrollOffset >= distance { stopScrolling() }
     }
 
+    // MARK: - Follow voice
+
+    private func wireFollowVoice() {
+        voiceFollow.setScript(script)
+        voiceFollow.onProgress = { [weak self] in
+            guard let self else { return }
+            self.followScroller.progressed(self.voiceFollow)
+        }
+        voiceFollow.onStatusChange = { [weak self] status in
+            self?.followStatusChanged(status)
+        }
+        followControls.onToggle = { [weak self] enabled in
+            self?.setFollowVoice(enabled)
+        }
+        followControls.onLanguageChange = { [weak self] choice in
+            guard let self else { return }
+            self.voiceFollow.languageChoice = choice
+            self.applyFollowVoiceMode()
+        }
+    }
+
+    private func setFollowVoice(_ enabled: Bool) {
+        followVoiceEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: TeleprompterDefaults.followVoice)
+        applyFollowVoiceMode()
+        if enabled {
+            // The permission prompt belongs to this click, not to a later one.
+            voiceFollow.prepare()
+        } else {
+            followScroller.clearDimming()
+        }
+        // Switching mid-roll changes who drives the script, not whether it rolls.
+        if isScrolling {
+            stopScrolling()
+            startScrolling()
+        }
+    }
+
+    private func applyFollowVoiceMode() {
+        for control in speedControls { control.isHidden = followVoiceEnabled }
+        followControls.setOn(followVoiceEnabled)
+        followControls.update(choice: voiceFollow.languageChoice, resolved: voiceFollow.language)
+        followControls.update(status: voiceFollow.status)
+        playButton?.toolTip = followVoiceEnabled
+            ? "Start or pause following your voice"
+            : "Start or pause scrolling"
+    }
+
+    private func followStatusChanged(_ status: PrompterVoiceFollow.Status) {
+        followControls.update(status: status)
+        switch status {
+        case .unavailable(let message):
+            guard followVoiceEnabled else { return }
+            if scrollTimer != nil, !followFallback {
+                // Picks up at the set speed from wherever the script is.
+                followFallback = true
+                scrollOffset = max(0, scrollView?.contentView.bounds.origin.y ?? 0)
+                lastAppliedScrollY = scrollOffset
+                scrollStartedAt = ProcessInfo.processInfo.systemUptime
+                lastTickUptime = nil
+            }
+            onStatusMessage?(followFallback && scrollTimer != nil
+                ? "Follow voice is unavailable, so the script scrolls at the set speed. \(message)"
+                : "Follow voice is unavailable. \(message)")
+        case .noAudio:
+            onStatusMessage?("Follow voice hears nothing from the microphone. Check the microphone in the record menu.")
+        default:
+            break
+        }
+    }
+
+    /// Shows the Follow voice controls without persisting the setting or
+    /// starting recognition, and optionally places the spoken position, for
+    /// the layout report. Returns the scroll offset that position lands on.
+    @discardableResult
+    func setFollowVoiceForDiagnostics(_ enabled: Bool, spokenFraction: Double? = nil) -> CGFloat? {
+        followVoiceEnabled = enabled
+        applyFollowVoiceMode()
+        guard enabled, let spokenFraction else {
+            followScroller.clearDimming()
+            return nil
+        }
+        let length = (script as NSString).length
+        voiceFollow.setSpokenPositionForDiagnostics(characterOffset: Int(Double(length) * spokenFraction))
+        return followScroller.snap(to: voiceFollow)
+    }
+
+    /// Line geometry at a few points of the script: positions must rise with
+    /// the text and map back to the line they came from.
+    func followGeometryDiagnostics() -> String {
+        guard let textView else { return "geometry=missing" }
+        let length = (script as NSString).length
+        let samples = [0, length / 4, length / 2, 3 * length / 4, length]
+        let positions = samples.map { sample -> CGFloat in
+            guard let line = textView.prompterLinePosition(forCharacterAt: sample) else { return -1 }
+            return line.top + line.height * line.fraction
+        }
+        let rising = zip(positions, positions.dropFirst()).allSatisfy { $0 <= $1 } && positions.first == 0
+        let roundTrip = zip(samples, positions).allSatisfy { sample, position in
+            guard let back = textView.prompterCharacterOffset(atLinePosition: position) else { return false }
+            return back <= sample && sample - back < 60
+        }
+        return "textkit2=\(textView.textLayoutManager != nil) positions=\(positions.map { Int($0) }) rising=\(rising) round_trip=\(roundTrip)"
+    }
+
+    /// Reads most of the current script into the follower and drags it by
+    /// hand, without audio; see `PrompterFollowSimulation`.
+    func followSimulationDiagnostics() -> String {
+        guard let scrollView else { return "ok=false scroll view missing" }
+        return PrompterFollowSimulation.run(
+            follow: voiceFollow,
+            scroller: followScroller,
+            scrollView: scrollView,
+            script: script
+        )
+    }
+
+    var followVoiceDiagnostics: String {
+        "enabled=\(followVoiceEnabled) language=\(voiceFollow.language.rawValue) choice=\(voiceFollow.languageChoice.rawValue) speed_hidden=\(speedControls.allSatisfy(\.isHidden)) toggle_state=\(followControls.toggle.state == .on)"
+    }
+
     /// Traverses the whole script in `wordCount / wordsPerMinute` minutes, so the
     /// setting means what it says regardless of layout.
     static func pointsPerSecond(
@@ -810,6 +980,8 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         lastAppliedScrollY = 0
         scrollView?.contentView.scroll(to: .zero)
         scrollView.map { $0.reflectScrolledClipView($0.contentView) }
+        followScroller.reset()
+        voiceFollow.resetToStart()
     }
 
     func setSpeedForDiagnostics(_ value: Double) {
