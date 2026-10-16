@@ -19,6 +19,7 @@
 - 提词器倒计时、暂停／继续、全局快捷键（⌥⌘R／⌥⌘P）与菜单栏录制状态保持不变；倒计时期间再次按 ⌥⌘R 不会再叠加出第二段录制。
 - 沙盒新增两项 Mac App Store 允许的权限：`com.apple.security.assets.movies.read-write`（写入影片文件夹）与 `com.apple.security.files.bookmarks.app-scope`（记住用户选择的文件夹）。
 - `--layout-report` 新增 `--saved-card [--renaming]`，无需摄像头即可检查卡片布局；新增 `--save-flow-check`，在已签名的沙盒 App 内验证文件夹创建与写入、文件夹书签、改名与移到废纸篓。
+- 录制期间按空格即可暂停／继续，与 ⌥⌘P 相同。只在 OneAct 窗口（含提词器）在前台时生效，在其他 App 中空格照常输入；空格只管暂停与继续，不会开始或停止录制；按住不放不会反复切换，也不会触发恰好拥有键盘焦点的按钮。暂停时预览中央显示醒目的「Paused」提示，写明「Not recording · Space or ⌥⌘P to resume」，该提示不进入成片。
 
 ## 0.41（build 41）— 2026-10-15
 

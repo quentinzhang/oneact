@@ -1600,6 +1600,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private let prompterButton = NSButton(title: "", target: nil, action: nil)
     private let countdownLabel = NSTextField(labelWithString: "")
+    private let pausedBadge = PausedBadge()
+    private var spacePauseMonitor: Any?
     // Layout fixtures must neither read nor overwrite the user's saved script.
     private let teleprompter = TeleprompterController(
         persistsScript: CommandLine.arguments.dropFirst().first != "--layout-report"
@@ -1643,6 +1645,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         showInitialInterface()
         installGlobalHotKeys()
+        installSpacePause()
         updateChecker.checkAutomatically()
     }
 
@@ -1989,6 +1992,81 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         ].compactMap { $0 }
     }
 
+    /// Space toggles pause while OneAct's window (or the teleprompter riding on
+    /// it) is in front; see `SpacePause` for why it is not global.
+    private func installSpacePause() {
+        spacePauseMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self else { return event }
+                switch self.spacePauseDecision(for: event, in: event.window) {
+                case .pass:
+                    return event
+                case .swallow:
+                    return nil
+                case .toggle:
+                    self.togglePause()
+                    return nil
+                }
+            }
+        }
+    }
+
+    private func spacePauseDecision(for event: NSEvent, in eventWindow: NSWindow?) -> SpacePause.Decision {
+        let state = reportRecordingState ?? (recorder.isRecording, recorder.isPaused)
+        let inOneAct = eventWindow.map { $0 === window || $0.parent === window } ?? false
+        // An editable text view — the teleprompter script outside a take, a
+        // rename field — is someone typing a space, not pausing.
+        let typing = (eventWindow?.firstResponder as? NSTextView)?.isEditable == true
+        return SpacePause.decide(
+            keyCode: event.keyCode,
+            modifiers: event.modifierFlags,
+            isRepeat: event.isARepeat,
+            takeRunning: state.recording && !qualityCheckRunning,
+            inOneActWindow: inOneAct,
+            typing: typing
+        )
+    }
+
+    /// Layout report: the decisions Space would get mid-take, from synthetic
+    /// key events, plus the pure rule's cases no live window can stage.
+    private func spacePauseReport() -> String {
+        func key(_ modifiers: NSEvent.ModifierFlags = [], repeated: Bool = false, code: Int = kVK_Space) -> NSEvent? {
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: code == kVK_Space ? " " : "p",
+                charactersIgnoringModifiers: code == kVK_Space ? " " : "p",
+                isARepeat: repeated,
+                keyCode: UInt16(code)
+            )
+        }
+        var results: [(name: String, got: String, ok: Bool)] = []
+        func check(_ name: String, _ event: NSEvent?, _ target: NSWindow?, expect: SpacePause.Decision) {
+            guard let event else { return results.append((name, "no_event", false)) }
+            let decision = spacePauseDecision(for: event, in: target)
+            results.append((name, decision.rawValue, decision == expect))
+        }
+        func check(_ name: String, _ decision: SpacePause.Decision, expect: SpacePause.Decision) {
+            results.append((name, decision.rawValue, decision == expect))
+        }
+        let taking = (reportRecordingState?.recording ?? false) && !qualityCheckRunning
+        check("main", key(), window, expect: taking ? .toggle : .pass)
+        check("held", key(repeated: true), window, expect: taking ? .swallow : .pass)
+        check("command_space", key(.command), window, expect: .pass)
+        check("other_key", key(code: kVK_ANSI_P), window, expect: .pass)
+        check("other_app_window", key(), nil, expect: .pass)
+        check("idle", SpacePause.decide(keyCode: UInt16(kVK_Space), modifiers: [], isRepeat: false,
+                                        takeRunning: false, inOneActWindow: true, typing: false), expect: .pass)
+        check("typing", SpacePause.decide(keyCode: UInt16(kVK_Space), modifiers: [], isRepeat: false,
+                                          takeRunning: true, inOneActWindow: true, typing: true), expect: .pass)
+        let ok = results.allSatisfy(\.ok)
+        return results.map { "\($0.name)=\($0.got)" }.joined(separator: " ") + " ok=\(ok)"
+    }
+
     /// The menu bar entry only exists while a take is running: a permanent icon
     /// would be one more thing in the menu bar for an app that is not a
     /// background utility.
@@ -2102,6 +2180,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         countdownLabel.alignment = .center
         countdownLabel.isHidden = true
         previewStage.addSubview(countdownLabel)
+        pausedBadge.translatesAutoresizingMaskIntoConstraints = false
+        pausedBadge.isHidden = true
+        previewStage.addSubview(pausedBadge)
         // Above the preview and on the stage's bottom edge, clear of the
         // teleprompter, which hugs the top.
         recordingCard.translatesAutoresizingMaskIntoConstraints = false
@@ -2372,6 +2453,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             stageDots.centerYAnchor.constraint(equalTo: previewStage.centerYAnchor),
             countdownLabel.centerXAnchor.constraint(equalTo: previewStage.centerXAnchor),
             countdownLabel.centerYAnchor.constraint(equalTo: previewStage.centerYAnchor),
+            pausedBadge.centerXAnchor.constraint(equalTo: previewStage.centerXAnchor),
+            pausedBadge.centerYAnchor.constraint(equalTo: previewStage.centerYAnchor),
+            pausedBadge.widthAnchor.constraint(lessThanOrEqualTo: previewStage.widthAnchor, constant: -32),
             recordingCard.centerXAnchor.constraint(equalTo: previewStage.centerXAnchor),
             recordingCard.bottomAnchor.constraint(equalTo: previewStage.bottomAnchor, constant: -16),
             recordingCard.widthAnchor.constraint(lessThanOrEqualTo: previewStage.widthAnchor, constant: -32),
@@ -3844,7 +3928,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         pauseButtonWidth.constant = recording ? 96 : 0
         pauseButtonTrailing.constant = recording ? -8 : 0
         pauseButton.title = paused ? "Resume" : "Pause"
-        pauseButton.toolTip = paused ? "Resume recording (⌥⌘P)" : "Pause recording (⌥⌘P)"
+        pauseButton.toolTip = paused ? "Resume recording (Space or ⌥⌘P)" : "Pause recording (Space or ⌥⌘P)"
+        pausedBadge.isHidden = !paused
         recordButton.setPausedAppearance(paused)
         updateConfigurationAvailability()
         updateStatusItem()
@@ -3989,6 +4074,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             pauseButtonWidth.constant = 96
             pauseButtonTrailing.constant = -8
             pauseButton.title = paused ? "Resume" : "Pause"
+            pausedBadge.isHidden = !paused
             recordButton.setPausedAppearance(paused)
             audioMeter.inputAvailable = true
             statusLabel.stringValue = paused
@@ -4082,6 +4168,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             writeTouchUpReport(outputPath: outputPath, in: contentView)
         }
         print("LAYOUT_REPORT size=\(contentView.frame.size) ambiguous=\(contentView.hasAmbiguousLayout)")
+        if CommandLine.arguments.contains("--recording") {
+            let stage = pausedBadge.superview?.bounds ?? .zero
+            print("PAUSED_BADGE visible=\(!pausedBadge.isHidden) frame=\(pausedBadge.frame) insideStage=\(stage.insetBy(dx: 15, dy: 15).contains(pausedBadge.frame)) ambiguous=\(pausedBadge.hasAmbiguousLayout) text=\"\(pausedBadge.reportText)\"")
+            print("SPACE_PAUSE \(spacePauseReport())")
+        }
         print("RECORD_ROW pause=\(pauseButton.isHidden ? "hidden" : pauseButton.title) meterGap=\(Int(recordButton.frame.minX - audioMeter.frame.maxX))pt meterEnabled=\(audioMeter.inputAvailable)")
         print("CONFIG_LOCK mode=\(modeControl.isEnabled) screenSource=\(chooseScreenButton.isEnabled) layout=\(screenLayoutControl.isEnabled) frame=\(cameraFrameControl.isEnabled) backdrop=\(canvasBackdropWell.isEnabled) zoom=\(zoomSlider.isEnabled) ratio=\(ratioButtons.first?.isEnabled ?? false) resolution=\(resolutionButtons.first?.isEnabled ?? false) devices=\(captureOptionsButton.isEnabled) format=\(recordingFormatControl.isEnabled)")
         print("TOUCH_UP button=\(touchUpControl.button.isHidden ? "hidden" : "visible") buttonEnabled=\(touchUpControl.button.isEnabled) \(touchUpControl.reportDescription)")
