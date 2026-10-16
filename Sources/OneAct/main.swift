@@ -3790,6 +3790,13 @@ private struct OneActApp {
         if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--aligner-test" {
             Darwin.exit(ScriptAlignerSelfTest.run())
         }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--speech-report" {
+            Darwin.exit(VoiceFollowProbe.speechReport())
+        }
+        if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--voice-follow-probe" {
+            VoiceFollowProbe.run(requestPermission: CommandLine.arguments.contains("--request-permission"))
+            RunLoop.main.run()
+        }
         if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--device-report" {
             Darwin.exit(DeviceReport.run())
         }

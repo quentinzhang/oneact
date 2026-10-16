@@ -1,4 +1,4 @@
-import Foundation
+import AVFoundation
 
 /// Offline test of the voice-following aligner: no microphone, no recognizer.
 ///
@@ -16,6 +16,7 @@ enum ScriptAlignerSelfTest {
     static func run() -> Int32 {
         do {
             try verifyNormalization()
+            print("ALIGNER_AUDIO_CONVERSION \(try verifyAudioConversion())")
             var summaries: [String] = []
             // ALIGNER_SEEDS=<n> sweeps more seeds when retuning.
             let extra = Int(ProcessInfo.processInfo.environment["ALIGNER_SEEDS"] ?? "") ?? 0
@@ -80,6 +81,73 @@ enum ScriptAlignerSelfTest {
         guard !chinesePhrases.isEmpty, chinesePhrases.count <= 100 else {
             throw Failure("chinese contextual phrases empty")
         }
+    }
+
+    // MARK: - Microphone audio
+
+    /// The recognizer is fed whatever the microphone delivers, converted to
+    /// 16 kHz mono. Three seconds of tone in three capture shapes must come
+    /// out as three seconds at the right level — including a mono microphone that
+    /// shows up as the right channel of a stereo pair, which taking channel 1
+    /// alone would turn into silence.
+    private static func verifyAudioConversion() throws -> String {
+        let shapes: [(name: String, format: AVAudioFormat, minimumRMS: Float)] = [
+            ("48k_stereo_right_only", AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: true)!, 0.12),
+            ("44k1_mono_int16", AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 44_100, channels: 1, interleaved: true)!, 0.3),
+            ("16k_mono_float", RecognitionAudioConverter.format, 0.3)
+        ]
+        var results: [String] = []
+        for shape in shapes {
+            var converter = RecognitionAudioConverter()
+            let chunk = AVAudioFrameCount(shape.format.sampleRate / 10)
+            var produced = 0
+            var energy: Float = 0
+            for index in 0..<30 {
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: shape.format, frameCapacity: chunk) else {
+                    throw Failure("audio buffer")
+                }
+                buffer.frameLength = chunk
+                let channels = Int(shape.format.channelCount)
+                for frame in 0..<Int(chunk) {
+                    let t = Double(index * Int(chunk) + frame) / shape.format.sampleRate
+                    let value = Float(0.5 * sin(2 * Double.pi * 440 * t))
+                    if shape.format.commonFormat == .pcmFormatInt16 {
+                        buffer.int16ChannelData![0][frame] = Int16(value * Float(Int16.max))
+                    } else if shape.format.isInterleaved {
+                        let samples = buffer.audioBufferList.pointee.mBuffers.mData!
+                            .assumingMemoryBound(to: Float.self)
+                        for channel in 0..<channels {
+                            samples[frame * channels + channel] = channel == channels - 1 ? value : 0
+                        }
+                    } else {
+                        buffer.floatChannelData![0][frame] = value
+                    }
+                }
+                let time = CMTime(value: CMTimeValue(index) * CMTimeValue(chunk), timescale: CMTimeScale(shape.format.sampleRate))
+                guard let sample = buffer.makeSampleBuffer(presentationTime: time),
+                      let output = converter.convert(sample) else {
+                    throw Failure("\(shape.name): conversion failed on buffer \(index)")
+                }
+                guard output.format == RecognitionAudioConverter.format else {
+                    throw Failure("\(shape.name): converted to \(output.format)")
+                }
+                let data = output.floatChannelData![0]
+                for frame in 0..<Int(output.frameLength) { energy += data[frame] * data[frame] }
+                produced += Int(output.frameLength)
+            }
+            let rms = produced > 0 ? (energy / Float(produced)).squareRoot() : 0
+            // The resampler works in packets and holds back its filter delay,
+            // a few hundred frames at most; over three seconds anything more
+            // would be audio lost or invented, not latency.
+            guard abs(produced - 48_000) <= 400 else {
+                throw Failure("\(shape.name): three seconds became \(produced) frames")
+            }
+            guard rms >= shape.minimumRMS else {
+                throw Failure("\(shape.name): level \(rms) after conversion")
+            }
+            results.append("\(shape.name)=\(produced)f/rms\(String(format: "%.2f", rms))")
+        }
+        return results.joined(separator: " ")
     }
 
     // MARK: - Scenarios
