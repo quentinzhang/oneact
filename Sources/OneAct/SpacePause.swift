@@ -47,6 +47,18 @@ final class PausedBadge: NSView {
     private let title = NSTextField(labelWithString: "Paused")
     private let detail = NSTextField(labelWithString: "Not recording · Space or ⌥⌘P to resume")
 
+    /// ⌥⌘P is named only while it is actually registered.
+    var globalShortcutAvailable = true {
+        didSet {
+            detail.stringValue = globalShortcutAvailable
+                ? "Not recording · Space or ⌥⌘P to resume"
+                : "Not recording · Space to resume"
+            setAccessibilityLabel(globalShortcutAvailable
+                ? "Recording paused. Press Space or Option-Command-P to resume."
+                : "Recording paused. Press Space to resume.")
+        }
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true

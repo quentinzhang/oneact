@@ -335,9 +335,31 @@ private final class PrimaryRecordButton: NSButton {
 
     private var isRecordingAppearance = false
 
+    /// The global shortcut shown on the button; nil when it could not be
+    /// registered, so the button never advertises a key that does nothing.
+    var shortcutHint: String? = "⌥⌘R" {
+        didSet { refreshTitle() }
+    }
+
+    private func refreshTitle() {
+        let label = isRecordingAppearance ? "■  Stop" : "●  Record"
+        attributedTitle = ShortcutHint.title(
+            label,
+            key: shortcutHint,
+            font: .systemFont(ofSize: 14, weight: .semibold),
+            color: .white,
+            keyColor: NSColor.white.withAlphaComponent(0.9)
+        )
+        let action = isRecordingAppearance ? "Stop recording" : "Start recording"
+        setAccessibilityLabel(action)
+        toolTip = shortcutHint.map { "\(action) (\($0), from any app)" } ?? action
+    }
+
+    var reportTitle: String { ShortcutHint.plain(attributedTitle) }
+
     func setRecordingAppearance(_ recording: Bool) {
         isRecordingAppearance = recording
-        title = recording ? "■  Stop" : "●  Record"
+        refreshTitle()
         layer?.removeAnimation(forKey: "recordingPulse")
         layer?.backgroundColor = NSColor.systemRed.cgColor
         guard recording else { return }
@@ -1601,6 +1623,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let prompterButton = NSButton(title: "", target: nil, action: nil)
     private let countdownLabel = NSTextField(labelWithString: "")
     private let pausedBadge = PausedBadge()
+    private var pauseHotKeyRegistered = true
     private var spacePauseMonitor: Any?
     // Layout fixtures must neither read nor overwrite the user's saved script.
     private let teleprompter = TeleprompterController(
@@ -1982,14 +2005,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// vanish — in the last seconds of the take, exactly where it shows.
     private func installGlobalHotKeys() {
         let optionCommand = UInt32(optionKey | cmdKey)
-        hotKeys = [
-            GlobalHotKey(keyCode: UInt32(kVK_ANSI_R), modifiers: optionCommand) { [weak self] in
-                self?.toggleRecording()
-            },
-            GlobalHotKey(keyCode: UInt32(kVK_ANSI_P), modifiers: optionCommand) { [weak self] in
-                self?.togglePause()
-            }
-        ].compactMap { $0 }
+        let record = GlobalHotKey(keyCode: UInt32(kVK_ANSI_R), modifiers: optionCommand) { [weak self] in
+            self?.toggleRecording()
+        }
+        let pause = GlobalHotKey(keyCode: UInt32(kVK_ANSI_P), modifiers: optionCommand) { [weak self] in
+            self?.togglePause()
+        }
+        hotKeys = [record, pause].compactMap { $0 }
+        // Another app holding a combination is no reason to fail, but the
+        // buttons must not show a shortcut that does nothing.
+        recordButton.shortcutHint = record == nil ? nil : "⌥⌘R"
+        pauseHotKeyRegistered = pause != nil
+        pausedBadge.globalShortcutAvailable = pause != nil
+        setPauseButtonTitle(paused: recorder?.isPaused ?? false)
     }
 
     /// Space toggles pause while OneAct's window (or the teleprompter riding on
@@ -2254,7 +2282,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         pauseButton.target = self
         pauseButton.action = #selector(togglePause)
         pauseButton.isHidden = true
-        pauseButton.toolTip = "Pause recording (⌥⌘P)"
+        setPauseButtonTitle(paused: false)
 
         recordButton.target = self
         recordButton.action = #selector(toggleRecording)
@@ -3925,14 +3953,35 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let recording = recorder.isRecording
         let paused = recording && recorder.isPaused
         pauseButton.isHidden = !recording
-        pauseButtonWidth.constant = recording ? 96 : 0
+        pauseButtonWidth.constant = recording ? Self.pauseButtonWidth : 0
         pauseButtonTrailing.constant = recording ? -8 : 0
-        pauseButton.title = paused ? "Resume" : "Pause"
-        pauseButton.toolTip = paused ? "Resume recording (Space or ⌥⌘P)" : "Pause recording (Space or ⌥⌘P)"
+        setPauseButtonTitle(paused: paused)
         pausedBadge.isHidden = !paused
         recordButton.setPausedAppearance(paused)
         updateConfigurationAvailability()
         updateStatusItem()
+    }
+
+    /// Wide enough for "Resume [Space]", so Pause and Resume do not shift
+    /// the meter between them.
+    private static let pauseButtonWidth: CGFloat = 140
+
+    /// The button shows Space — the key for it while OneAct is in front. ⌥⌘P,
+    /// the one for other apps, is in the tooltip and the paused badge.
+    private func setPauseButtonTitle(paused: Bool) {
+        let label = paused ? "Resume" : "Pause"
+        pauseButton.attributedTitle = ShortcutHint.title(
+            label,
+            key: "Space",
+            font: .systemFont(ofSize: NSFont.systemFontSize(for: .large)),
+            color: .controlTextColor,
+            keyColor: .secondaryLabelColor
+        )
+        let action = paused ? "Resume recording" : "Pause recording"
+        pauseButton.setAccessibilityLabel(action)
+        pauseButton.toolTip = pauseHotKeyRegistered
+            ? "\(action) (Space, or ⌥⌘P from any app)"
+            : "\(action) (Space)"
     }
 
     private func beginRecordingClock(fileName: String) {
@@ -4071,9 +4120,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             cameraSessionReady = true
             updateConfigurationAvailability()
             pauseButton.isHidden = false
-            pauseButtonWidth.constant = 96
+            pauseButtonWidth.constant = Self.pauseButtonWidth
             pauseButtonTrailing.constant = -8
-            pauseButton.title = paused ? "Resume" : "Pause"
+            setPauseButtonTitle(paused: paused)
             pausedBadge.isHidden = !paused
             recordButton.setPausedAppearance(paused)
             audioMeter.inputAvailable = true
@@ -4173,7 +4222,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             print("PAUSED_BADGE visible=\(!pausedBadge.isHidden) frame=\(pausedBadge.frame) insideStage=\(stage.insetBy(dx: 15, dy: 15).contains(pausedBadge.frame)) ambiguous=\(pausedBadge.hasAmbiguousLayout) text=\"\(pausedBadge.reportText)\"")
             print("SPACE_PAUSE \(spacePauseReport())")
         }
-        print("RECORD_ROW pause=\(pauseButton.isHidden ? "hidden" : pauseButton.title) meterGap=\(Int(recordButton.frame.minX - audioMeter.frame.maxX))pt meterEnabled=\(audioMeter.inputAvailable)")
+        print("SHORTCUT_TITLES record=\"\(recordButton.reportTitle)\" recordFits=\(recordButton.intrinsicContentSize.width <= recordButton.frame.width) pause=\"\(ShortcutHint.plain(pauseButton.attributedTitle))\" pauseFits=\(pauseButton.isHidden || pauseButton.intrinsicContentSize.width <= pauseButton.frame.width) pauseTip=\"\(pauseButton.toolTip ?? "")\" recordTip=\"\(recordButton.toolTip ?? "")\"")
+        print("RECORD_ROW pause=\(pauseButton.isHidden ? "hidden" : ShortcutHint.plain(pauseButton.attributedTitle)) meterGap=\(Int(recordButton.frame.minX - audioMeter.frame.maxX))pt meterEnabled=\(audioMeter.inputAvailable)")
         print("CONFIG_LOCK mode=\(modeControl.isEnabled) screenSource=\(chooseScreenButton.isEnabled) layout=\(screenLayoutControl.isEnabled) frame=\(cameraFrameControl.isEnabled) backdrop=\(canvasBackdropWell.isEnabled) zoom=\(zoomSlider.isEnabled) ratio=\(ratioButtons.first?.isEnabled ?? false) resolution=\(resolutionButtons.first?.isEnabled ?? false) devices=\(captureOptionsButton.isEnabled) format=\(recordingFormatControl.isEnabled)")
         print("TOUCH_UP button=\(touchUpControl.button.isHidden ? "hidden" : "visible") buttonEnabled=\(touchUpControl.button.isEnabled) \(touchUpControl.reportDescription)")
         print("RECORDING_FORMAT selected=\(selectedRecordingFormat.rawValue) detail=\(recordingFormatDetail.stringValue)")

@@ -20,6 +20,7 @@
 - 沙盒新增两项 Mac App Store 允许的权限：`com.apple.security.assets.movies.read-write`（写入影片文件夹）与 `com.apple.security.files.bookmarks.app-scope`（记住用户选择的文件夹）。
 - `--layout-report` 新增 `--saved-card [--renaming]`，无需摄像头即可检查卡片布局；新增 `--save-flow-check`，在已签名的沙盒 App 内验证文件夹创建与写入、文件夹书签、改名与移到废纸篓。
 - 录制期间按空格即可暂停／继续，与 ⌥⌘P 相同。只在 OneAct 窗口（含提词器）在前台时生效，在其他 App 中空格照常输入；空格只管暂停与继续，不会开始或停止录制；按住不放不会反复切换，也不会触发恰好拥有键盘焦点的按钮。暂停时预览中央显示醒目的「Paused」提示，写明「Not recording · Space or ⌥⌘P to resume」，该提示不进入成片。
+- 快捷键直接显示在按钮上，以键帽样式跟在文字后面：录制按钮显示「● Record ⌥⌘R」／「■ Stop ⌥⌘R」，录制中的暂停按钮显示「Pause Space」／「Resume Space」。⌥⌘P 写在暂停按钮的提示和暂停提示中。全局快捷键被其他 App 占用、注册失败时，按钮和提示不再显示这个无效的快捷键。
 
 ## 0.41（build 41）— 2026-10-15
 
