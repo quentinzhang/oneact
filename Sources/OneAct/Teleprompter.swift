@@ -174,6 +174,9 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     private var wordsPerMinute: Double
     private var backdropIndex: Int
     private let persistsScript: Bool
+    /// Lets other recorders see the script, so OneAct's own demo videos can
+    /// show the prompter. Off unless launched with --capturable-prompter.
+    private let capturable: Bool
     private var swatchButtons: [NSButton] = []
     private var tintedControls: [NSView] = []
 
@@ -197,11 +200,15 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         return (documentHeight, visibleHeight, wordCount, seconds, charactersPerMinute)
     }
 
+    /// The overlay itself, for the layout report to render and inspect.
+    var overlayWindowForDiagnostics: NSWindow? { overlayWindow }
+
     var isVisible: Bool { overlayWindow?.isVisible == true }
     var isScrolling: Bool { scrollTimer != nil }
 
-    init(persistsScript: Bool = true) {
+    init(persistsScript: Bool = true, capturable: Bool = false) {
         self.persistsScript = persistsScript
+        self.capturable = capturable
         let defaults = UserDefaults.standard
         let storedFontSize = CGFloat(defaults.double(forKey: TeleprompterDefaults.fontSize))
         let storedSpeed = defaults.double(forKey: TeleprompterDefaults.wordsPerMinute)
@@ -331,8 +338,9 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         overlay.backgroundColor = .clear
         overlay.hasShadow = false
         // The script is for the presenter only — invisible to our own recording
-        // and to any other capture (meeting shares included).
-        overlay.sharingType = .none
+        // and to any other capture (meeting shares included). The capturable
+        // exception exists only for filming OneAct itself.
+        overlay.sharingType = capturable ? .readOnly : .none
         overlay.delegate = self
         overlay.contentView = makeContentView()
         return overlay
