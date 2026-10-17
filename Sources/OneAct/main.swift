@@ -31,8 +31,7 @@ private struct CanvasResolution: Equatable {
 }
 
 /// Backdrop behind the video on the canvas: the Fit-layout bars and the empty
-/// canvas before a screen source is chosen. A small preset set, mirroring the
-/// teleprompter's backdrop swatches.
+/// canvas before a screen source is chosen. A small preset set.
 /// Backdrop of the preview stage — the app's own chrome around the canvas. It
 /// is never composited into a recording, so a handful of quiet presets is
 /// enough; they live behind a hover reveal to stay out of the way.
@@ -1553,7 +1552,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// four-minute take with a one-minute pause reads 03:00, matching the file.
     private var pausedAccumulated: TimeInterval = 0
     private var pauseBeganAt: Date?
-    private var recordingFileName = ""
     // Layout fixtures neither read nor change the saved folder choice.
     private lazy var recordingsFolder = RecordingsFolder(readsStoredFolder: !isLayoutReport)
     private let recordingCard = RecordingCardView(frame: .zero)
@@ -1826,6 +1824,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         mainInterfaceBuilt = true
         permissionOnboarding?.close()
         permissionOnboarding = nil
+        teleprompter.adoptFollowVoiceDefault()
         buildRedesignedWindow()
         if !isLayoutReport {
             reloadDevices(preservingSelection: false)
@@ -3070,7 +3069,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         updateSystemAudioAvailability()
 
         // Mid-take the clock owns this line; overwriting it would drop the
-        // elapsed time and the file name for a second every time the user
+        // elapsed time and the Space hint for a second every time the user
         // changes shot while paused.
         guard !recorder.isRecording else {
             updateRecordingClock()
@@ -3668,6 +3667,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             guard !takeStarting else { return }
+            // Follow voice asks for speech recognition when it is turned on,
+            // but a remembered toggle can outlive the answer. Ask before the
+            // countdown, so the system prompt never lands in a take; once it
+            // is answered either way, the take starts as if Record had just
+            // been pressed.
+            if teleprompter.isVisible, teleprompter.needsSpeechPermission {
+                takeStarting = true
+                recordButton.isEnabled = false
+                statusLabel.stringValue = "Follow voice needs speech recognition · answer the macOS prompt and recording starts"
+                teleprompter.requestSpeechPermission { [weak self] in
+                    guard let self else { return }
+                    self.takeStarting = false
+                    self.recordButton.isEnabled = true
+                    self.toggleRecording()
+                }
+                return
+            }
             // Starting the next take keeps the last one: the card goes, the
             // file stays where it was saved.
             dismissRecordingCard()
@@ -3702,7 +3718,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.recordButton.setRecordingAppearance(true)
                         self.recordButton.isEnabled = true
                         self.teleprompter.startScrolling()
-                        self.beginRecordingClock(fileName: url.lastPathComponent)
+                        self.beginRecordingClock()
                         self.updatePauseAffordances()
                     case .failure(let error):
                         self.activeTakeFolder = nil
@@ -3948,6 +3964,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         print("PROMPTER_FOLLOW_SIM \(teleprompter.followSimulationDiagnostics())")
         teleprompter.setFollowVoiceForDiagnostics(false)
         teleprompter.setScriptForDiagnostics(originalScript)
+
+        // The text-size slider must hold still whichever pace control shows
+        // and whether or not the editing hint has appeared.
+        var sizeSliderPositions: [(String, CGFloat)] = []
+        for following in [false, true] {
+            teleprompter.setFollowVoiceForDiagnostics(following)
+            for editing in [false, true] {
+                if editing { teleprompter.beginEditing() }
+                let state = "\(following ? "follow" : "speed")_\(editing ? "editing" : "idle")"
+                sizeSliderPositions.append((state, teleprompter.textSizeSliderX()))
+                if editing { teleprompter.commitEditing() }
+            }
+        }
+        teleprompter.setFollowVoiceForDiagnostics(false)
+        let positions = sizeSliderPositions.map { "\($0.0)=\(Int($0.1))" }.joined(separator: " ")
+        print("PROMPTER_BAR size_slider_x \(positions) stable=\(Set(sizeSliderPositions.map(\.1)).count == 1)")
     }
 
     @objc private func togglePause() {
@@ -3999,12 +4031,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             : "\(action) (Space or ⌥⌘P)"
     }
 
-    private func beginRecordingClock(fileName: String) {
+    private func beginRecordingClock() {
         recordingStartDate = Date()
         pausedAccumulated = 0
         pauseBeganAt = nil
         recordingTimer?.invalidate()
-        recordingFileName = fileName
         let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.updateRecordingClock() }
         }
@@ -4033,29 +4064,39 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateRecordingClock() {
         guard recordingStartDate != nil else { return }
-        // Recording the bare canvas is legitimate but rarely intended for long,
-        // so it is named in the one line that is on screen the whole time
-        // rather than left for the user to discover in the file.
-        let sourceNote = currentCaptureMode == .screenAndCamera && !screenSourceReady
-            ? " · no screen source"
-            : ""
-        let audioNote = systemAudioCheckbox.state == .on ? " · system audio" : ""
-        statusLabel.stringValue = Self.recordingStatusLine(
+        statusLabel.attributedStringValue = recordingStatusLine(
             paused: recorder.isPaused,
-            clock: recordedClockText,
-            notes: sourceNote + audioNote,
-            fileName: recordingFileName
+            clock: recordedClockText
         )
         updateStatusItem()
     }
 
-    /// The one line on screen for the whole take, ending with the key for the
-    /// next pause or resume. The label truncates in the middle, so a long
-    /// file name gives way before the hint does.
-    private static func recordingStatusLine(paused: Bool, clock: String, notes: String, fileName: String) -> String {
-        paused
-            ? "❙❙ Paused \(clock)\(notes) · \(fileName) · Space to resume"
-            : "● Recording \(clock)\(notes) · \(fileName) · Space to pause"
+    /// The one line on screen for the whole take: the clock, then the key for
+    /// the next pause or resume. Nothing else — mid-take the presenter only
+    /// needs to know it is rolling and how to stop for a breath, so the file
+    /// name and source notes wait for the card after the take.
+    ///
+    /// The clock keeps the label's own style, so the plain status messages
+    /// set after the take still read in it; the hint is brighter and larger,
+    /// with Space in bold.
+    private func recordingStatusLine(paused: Bool, clock: String) -> NSAttributedString {
+        let baseFont = statusLabel.font ?? .systemFont(ofSize: 11)
+        let line = NSMutableAttributedString(
+            string: paused ? "❙❙ Paused \(clock)" : "● Recording \(clock)",
+            attributes: [.font: baseFont, .foregroundColor: NSColor.secondaryLabelColor]
+        )
+        let hintSize = baseFont.pointSize + 1
+        let hint: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: hintSize, weight: .medium),
+            .foregroundColor: NSColor.labelColor
+        ]
+        line.append(NSAttributedString(string: "   Press ", attributes: hint))
+        line.append(NSAttributedString(string: "Space", attributes: [
+            .font: NSFont.systemFont(ofSize: hintSize, weight: .bold),
+            .foregroundColor: NSColor.labelColor
+        ]))
+        line.append(NSAttributedString(string: paused ? " to resume" : " to pause", attributes: hint))
+        return line
     }
 
     private func endRecordingClock() {
@@ -4153,12 +4194,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             pausedBadge.isHidden = !paused
             recordButton.setPausedAppearance(paused)
             audioMeter.inputAvailable = true
-            statusLabel.stringValue = Self.recordingStatusLine(
-                paused: paused,
-                clock: "01:12",
-                notes: "",
-                fileName: "OneAct-20260813-030405.mov"
-            )
+            statusLabel.attributedStringValue = recordingStatusLine(paused: paused, clock: "01:12")
         }
         // The card only appears after a real take, so render it on demand.
         // The sample file does not exist — the card falls back to the movie

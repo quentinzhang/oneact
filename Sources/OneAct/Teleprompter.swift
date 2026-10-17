@@ -4,47 +4,27 @@ import AppKit
 private enum TeleprompterDefaults {
     static let fontSize = "teleprompter.fontSize"
     static let wordsPerMinute = "teleprompter.wordsPerMinute"
-    static let backdrop = "teleprompter.backdrop"
     static let followVoice = "teleprompter.followVoice"
 }
 
-/// Backdrop presets: a fixed, tasteful set instead of a color picker. Each pairs
-/// a translucent backdrop with matching text and control colors, so a light
-/// video no longer swallows the strip.
+/// The prompter's one backdrop: translucent graphite with matching text and
+/// control colors, so a light video does not swallow the strip. Choosing
+/// among presets was one more decision before every take for a strip that
+/// only has to stay readable.
 struct TeleprompterBackdrop {
-    let name: String
     let background: NSColor
     let editingBackground: NSColor
     let border: NSColor
     let text: NSColor
     let controls: NSColor
 
-    static let all: [TeleprompterBackdrop] = [
-        TeleprompterBackdrop(
-            name: "Graphite",
-            background: NSColor.black.withAlphaComponent(0.58),
-            editingBackground: NSColor.black.withAlphaComponent(0.8),
-            border: NSColor.white.withAlphaComponent(0.10),
-            text: .white,
-            controls: NSColor.white.withAlphaComponent(0.8)
-        ),
-        TeleprompterBackdrop(
-            name: "Midnight",
-            background: NSColor(calibratedRed: 0.10, green: 0.14, blue: 0.32, alpha: 0.7),
-            editingBackground: NSColor(calibratedRed: 0.10, green: 0.14, blue: 0.32, alpha: 0.88),
-            border: NSColor.white.withAlphaComponent(0.12),
-            text: .white,
-            controls: NSColor.white.withAlphaComponent(0.8)
-        ),
-        TeleprompterBackdrop(
-            name: "Paper",
-            background: NSColor(calibratedWhite: 0.97, alpha: 0.8),
-            editingBackground: NSColor(calibratedWhite: 0.97, alpha: 0.94),
-            border: NSColor.black.withAlphaComponent(0.14),
-            text: NSColor(calibratedWhite: 0.06, alpha: 1),
-            controls: NSColor.black.withAlphaComponent(0.62)
-        )
-    ]
+    static let standard = TeleprompterBackdrop(
+        background: NSColor.black.withAlphaComponent(0.58),
+        editingBackground: NSColor.black.withAlphaComponent(0.8),
+        border: NSColor.white.withAlphaComponent(0.10),
+        text: .white,
+        controls: NSColor.white.withAlphaComponent(0.8)
+    )
 }
 
 enum TeleprompterLimits {
@@ -82,6 +62,31 @@ enum TeleprompterLimits {
     /// Long lines make the eyes sweep sideways, which is obvious on camera, so
     /// the text column stays narrow no matter how wide the overlay is.
     static let maximumTextWidth: CGFloat = 620
+}
+
+/// The prompter's sliders, with a track drawn for its dark strip. The system
+/// track is a faint translucent line that disappears over dark video, and
+/// more so whenever the window is not key — which, mid-take, is most of the
+/// time. This one looks the same either way; the knob stays the system one.
+private final class PrompterSlider: NSSlider {
+    override class var cellClass: AnyClass? {
+        get { PrompterSliderCell.self }
+        set {}
+    }
+}
+
+private final class PrompterSliderCell: NSSliderCell {
+    override func drawBar(inside rect: NSRect, flipped: Bool) {
+        let track = NSRect(x: rect.minX, y: rect.midY - 1.5, width: rect.width, height: 3)
+        NSColor.white.withAlphaComponent(0.32).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
+        // Filled up to the knob's centre, as the system slider is.
+        let knobCentre = knobRect(flipped: flipped).midX
+        var filled = track
+        filled.size.width = max(0, min(track.width, knobCentre - track.minX))
+        NSColor.controlAccentColor.setFill()
+        NSBezierPath(roundedRect: filled, xRadius: 1.5, yRadius: 1.5).fill()
+    }
 }
 
 /// Borderless overlay that can take keyboard focus for in-place script editing.
@@ -157,6 +162,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     private var textView: NSTextView?
     private var playButton: NSButton?
     private var speedSlider: NSSlider?
+    private var fontSlider: NSSlider?
     private var editHintLabel: NSTextField?
     private var placeholderLabel: NSTextField?
     private var clickRecognizer: NSClickGestureRecognizer?
@@ -173,12 +179,10 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
 
     private var fontSize: CGFloat
     private var wordsPerMinute: Double
-    private var backdropIndex: Int
     private let persistsScript: Bool
     /// Lets other recorders see the script, so OneAct's own demo videos can
     /// show the prompter. Off unless launched with --capturable-prompter.
     private let capturable: Bool
-    private var swatchButtons: [NSButton] = []
     private var tintedControls: [NSView] = []
 
     /// Follow voice: the script keeps pace with the presenter's speech instead
@@ -189,14 +193,14 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
     var onStatusMessage: ((String) -> Void)?
     private let followControls = PrompterFollowControls()
     private let followScroller = PrompterFollowScroller()
-    private var followVoiceEnabled = UserDefaults.standard.bool(forKey: TeleprompterDefaults.followVoice)
+    private var followVoiceEnabled = TeleprompterController.storedFollowVoice()
     /// Following could not start for this run, so the script rolls at the
     /// set speed rather than standing still in front of the presenter.
     private var followFallback = false
     private var speedControls: [NSView] = []
     private var isFollowing: Bool { followVoiceEnabled && !followFallback && scrollTimer != nil }
 
-    private var currentBackdrop: TeleprompterBackdrop { TeleprompterBackdrop.all[backdropIndex] }
+    private var currentBackdrop: TeleprompterBackdrop { .standard }
     var playControlEnabled: Bool { playButton?.isEnabled ?? true }
 
     /// Measured pace of the current layout, for the layout report: what the
@@ -216,6 +220,13 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         return (documentHeight, visibleHeight, wordCount, seconds, charactersPerMinute)
     }
 
+    /// Where the text-size slider sits in the overlay, for the layout report.
+    func textSizeSliderX() -> CGFloat {
+        guard let fontSlider, let containerView else { return -1 }
+        containerView.layoutSubtreeIfNeeded()
+        return fontSlider.convert(fontSlider.bounds, to: containerView).minX
+    }
+
     /// The overlay itself, for the layout report to render and inspect.
     var overlayWindowForDiagnostics: NSWindow? { overlayWindow }
 
@@ -230,8 +241,6 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         let storedSpeed = defaults.double(forKey: TeleprompterDefaults.wordsPerMinute)
         fontSize = storedFontSize > 0 ? storedFontSize : 34
         wordsPerMinute = storedSpeed > 0 ? storedSpeed : 130
-        let storedBackdrop = defaults.integer(forKey: TeleprompterDefaults.backdrop)
-        backdropIndex = (0..<TeleprompterBackdrop.all.count).contains(storedBackdrop) ? storedBackdrop : 0
         super.init()
         if persistsScript {
             script = Self.loadScriptFromDisk() ?? ""
@@ -358,6 +367,10 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         // and to any other capture (meeting shares included). The capturable
         // exception exists only for filming OneAct itself.
         overlay.sharingType = capturable ? .readOnly : .none
+        // The backdrop is always dark, whatever the Mac's appearance. In
+        // light mode the sliders drew a track meant for a light background,
+        // which all but vanished on the strip once the window lost focus.
+        overlay.appearance = NSAppearance(named: .darkAqua)
         overlay.delegate = self
         overlay.contentView = makeContentView()
         return overlay
@@ -488,7 +501,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
 
         // Tortoise-to-hare slider: speed reads as a feel, not as a number the
         // presenter has to interpret.
-        let slider = NSSlider(
+        let slider = PrompterSlider(
             value: TeleprompterLimits.sliderValue(forSpeed: wordsPerMinute),
             minValue: 0,
             maxValue: 1,
@@ -508,47 +521,92 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         hint.isHidden = true
         editHintLabel = hint
 
-        swatchButtons = TeleprompterBackdrop.all.enumerated().map { index, preset in
-            makeSwatchButton(index: index, preset: preset)
-        }
-        let smallerText = iconButton(
-            "textformat.size.smaller",
-            tooltip: "Smaller text",
-            action: #selector(decreaseFont),
-            width: 15
+        // Text size works like the speed: one drag across the range instead
+        // of a click per four points.
+        let sizeSlider = PrompterSlider(
+            value: Double(fontSize),
+            minValue: Double(TeleprompterLimits.minimumFontSize),
+            maxValue: Double(TeleprompterLimits.maximumFontSize),
+            target: self,
+            action: #selector(fontSliderChanged)
         )
-        let largerText = iconButton(
-            "textformat.size.larger",
-            tooltip: "Bigger text",
-            action: #selector(increaseFont),
-            width: 15
-        )
+        sizeSlider.controlSize = .small
+        sizeSlider.isContinuous = true
+        sizeSlider.toolTip = "Text size"
+        sizeSlider.translatesAutoresizingMaskIntoConstraints = false
+        sizeSlider.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        fontSlider = sizeSlider
+        let sizeGroup = NSStackView(views: [
+            sliderIcon("textformat.size.smaller", tooltip: "Smaller text"),
+            sizeSlider,
+            sliderIcon("textformat.size.larger", tooltip: "Bigger text")
+        ])
+        sizeGroup.orientation = .horizontal
+        sizeGroup.alignment = .centerY
+        sizeGroup.spacing = 6
         // Follow voice takes the speed slider's place: with the voice setting
         // the pace, a speed would only be a second, contradictory answer.
-        speedControls = [
-            speedIcon("tortoise.fill", tooltip: "Slower"),
+        let speedGroup = NSStackView(views: [
+            sliderIcon("tortoise.fill", tooltip: "Slower"),
             slider,
-            speedIcon("hare.fill", tooltip: "Faster")
-        ]
+            sliderIcon("hare.fill", tooltip: "Faster")
+        ])
+        speedGroup.orientation = .horizontal
+        speedGroup.alignment = .centerY
+        speedGroup.spacing = 6
+        speedControls = [speedGroup]
+        // Both answers share one slot as wide as the slider, so the text-size
+        // slider stays put whichever one is showing — the bar
+        // is pinned at both ends, and a slot that could stretch would push
+        // them to the far edge.
+        let paceSlot = NSView()
+        paceSlot.translatesAutoresizingMaskIntoConstraints = false
+        for view in [speedGroup, followControls.panel] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            paceSlot.addSubview(view)
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: paceSlot.leadingAnchor),
+                view.trailingAnchor.constraint(lessThanOrEqualTo: paceSlot.trailingAnchor),
+                view.centerYAnchor.constraint(equalTo: paceSlot.centerYAnchor)
+            ])
+        }
+        NSLayoutConstraint.activate([
+            paceSlot.widthAnchor.constraint(equalTo: speedGroup.widthAnchor),
+            paceSlot.heightAnchor.constraint(equalToConstant: 20)
+        ])
+        // The bar is pinned at both ends, so its spare width has to land
+        // somewhere. Left to the stack, it was shared among every view that
+        // could stretch — both slider groups and the editing hint — and the
+        // text-size slider moved whenever the hint came or went. The groups
+        // now hold their size and this spacer takes all of the slack, which
+        // also keeps the hint against the right edge.
+        speedGroup.setHuggingPriority(.defaultHigh, for: .horizontal)
+        sizeGroup.setHuggingPriority(.defaultHigh, for: .horizontal)
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        spacer.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        spacer.heightAnchor.constraint(equalToConstant: 1).isActive = true
         let stack = NSStackView(views: [
             play,
             iconButton("arrow.up.to.line", tooltip: "Back to the top", action: #selector(scrollToTop)),
-            followControls.toggle
-        ] + speedControls + [
-            followControls.panel,
-            smallerText,
-            largerText
-        ] + swatchButtons + [hint])
+            followControls.toggle,
+            paceSlot,
+            sizeGroup,
+            spacer,
+            hint
+        ])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 6
-        // The two text-size icons are one control in spirit — no gap between them.
-        stack.setCustomSpacing(0, after: smallerText)
+        // A little air between the pace and the size, so the two sliders
+        // read as two controls rather than one long track.
+        stack.setCustomSpacing(16, after: paceSlot)
         applyFollowVoiceMode()
         return stack
     }
 
-    private func speedIcon(_ symbol: String, tooltip: String) -> NSImageView {
+    private func sliderIcon(_ symbol: String, tooltip: String) -> NSImageView {
         let view = NSImageView()
         view.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
         view.toolTip = tooltip
@@ -574,31 +632,6 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         return button
     }
 
-    private func makeSwatchButton(index: Int, preset: TeleprompterBackdrop) -> NSButton {
-        let button = NSButton(title: "", target: self, action: #selector(backdropSelected(_:)))
-        button.isBordered = false
-        button.bezelStyle = .regularSquare
-        button.tag = index
-        button.toolTip = "\(preset.name) backdrop"
-        button.wantsLayer = true
-        button.layer?.cornerRadius = 6
-        button.layer?.borderWidth = 1
-        // Opaque version of the backdrop, so the swatch reads no matter what
-        // video happens to be behind the strip.
-        button.layer?.backgroundColor = preset.background.withAlphaComponent(1).cgColor
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 12).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 12).isActive = true
-        return button
-    }
-
-    @objc private func backdropSelected(_ sender: NSButton) {
-        backdropIndex = sender.tag
-        UserDefaults.standard.set(backdropIndex, forKey: TeleprompterDefaults.backdrop)
-        applyBackdrop()
-        restyleScript()
-    }
-
     /// Everything whose color depends on the backdrop, in one place.
     private func applyBackdrop() {
         let preset = currentBackdrop
@@ -619,13 +652,6 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         }
         followControls.applyTint(preset.controls)
         followScroller.dimColor = preset.text.withAlphaComponent(0.42)
-        for (index, swatch) in swatchButtons.enumerated() {
-            let selected = index == backdropIndex
-            swatch.layer?.borderWidth = selected ? 2 : 1
-            swatch.layer?.borderColor = selected
-                ? NSColor.controlAccentColor.cgColor
-                : preset.controls.withAlphaComponent(0.35).cgColor
-        }
     }
 
     // MARK: - In-place editing
@@ -708,7 +734,7 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         ]
     }
 
-    /// For a font or backdrop change. While editing, the text view holds typing
+    /// For a text-size change. While editing, the text view holds typing
     /// that is not saved yet, so it is restyled where it stands — replacing it
     /// with `script` threw that typing away.
     private func restyleScript() {
@@ -919,6 +945,47 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
 
     // MARK: - Follow voice
 
+    /// The presenter's own choice when there is one. Until then Follow voice
+    /// is on exactly when speech recognition is already allowed — saying yes
+    /// to it during setup was saying yes to Follow voice — and off otherwise,
+    /// so an untouched toggle never asks for anything by itself.
+    private static func storedFollowVoice() -> Bool {
+        UserDefaults.standard.object(forKey: TeleprompterDefaults.followVoice) as? Bool
+            ?? (OnDeviceTranscriber.authorizationStatus == .authorized)
+    }
+
+    /// The presenter turned Follow voice off, and that choice outlasts any
+    /// later answer about speech recognition.
+    static var followVoiceSwitchedOff: Bool {
+        UserDefaults.standard.object(forKey: TeleprompterDefaults.followVoice) as? Bool == false
+    }
+
+    /// This controller exists before setup ends, so an untouched toggle
+    /// catches up with whatever setup decided about speech recognition.
+    func adoptFollowVoiceDefault() {
+        let resolved = Self.storedFollowVoice()
+        guard resolved != followVoiceEnabled, !isScrolling else { return }
+        followVoiceEnabled = resolved
+        applyFollowVoiceMode()
+    }
+
+    /// Follow voice is on but speech recognition has never been answered:
+    /// a reinstall or reset permissions keep the toggle and lose the answer.
+    /// Rolling now would put the system prompt in front of the presenter.
+    var needsSpeechPermission: Bool {
+        followVoiceEnabled && OnDeviceTranscriber.authorizationStatus == .notDetermined
+    }
+
+    /// Asks for speech recognition now and calls back once it is answered,
+    /// so a take can wait for the answer instead of starting under the prompt.
+    func requestSpeechPermission(then completion: @escaping () -> Void) {
+        OnDeviceTranscriber.requestAuthorization { [weak self] _ in
+            // Lets the status under the toggle catch up with the answer.
+            self?.voiceFollow.prepare()
+            completion()
+        }
+    }
+
     private func wireFollowVoice() {
         voiceFollow.setScript(script)
         voiceFollow.onProgress = { [weak self] in
@@ -1083,14 +1150,13 @@ final class TeleprompterController: NSObject, NSTextViewDelegate, NSWindowDelega
         updateSpeedTooltip()
     }
 
-    @objc private func decreaseFont() { adjustFont(by: -4) }
-    @objc private func increaseFont() { adjustFont(by: 4) }
-
-    private func adjustFont(by delta: CGFloat) {
-        fontSize = min(
-            max(fontSize + delta, TeleprompterLimits.minimumFontSize),
-            TeleprompterLimits.maximumFontSize
-        )
+    @objc private func fontSliderChanged() {
+        guard let fontSlider else { return }
+        // Whole points: in-between sizes only re-lay the script out more
+        // often while dragging, with no difference anyone can see.
+        let size = CGFloat(fontSlider.doubleValue.rounded())
+        guard size != fontSize else { return }
+        fontSize = size
         UserDefaults.standard.set(Double(fontSize), forKey: TeleprompterDefaults.fontSize)
         restyleScript()
     }

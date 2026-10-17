@@ -241,15 +241,30 @@ final class PrompterFollowControls: NSObject {
         panel = NSStackView()
         super.init()
 
-        toggle.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Follow voice")
+        // A labelled pill rather than one more glyph among the icons: off, it
+        // has to be found by someone who skipped it during setup; on, it says
+        // which mode the script is in.
         toggle.setButtonType(.toggle)
         toggle.isBordered = false
         toggle.bezelStyle = .regularSquare
+        let waveform = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
+        toggle.image = waveform
+        toggle.alternateImage = waveform
+        toggle.imagePosition = .imageLeading
+        // Icon and title as one centred group, with even padding either side
+        // of the pill; left alone, the icon sits against the left edge.
+        toggle.alignment = .center
+        toggle.imageHugsTitle = true
+        toggle.attributedTitle = Self.title(color: .white)
+        toggle.wantsLayer = true
+        toggle.layer?.cornerRadius = 10
+        toggle.layer?.borderWidth = 1
         toggle.toolTip = "Follow voice · the script scrolls as you read it aloud. Recognition runs on this Mac only."
         toggle.target = self
         toggle.action = #selector(toggleClicked)
         toggle.translatesAutoresizingMaskIntoConstraints = false
-        toggle.widthAnchor.constraint(equalToConstant: 22).isActive = true
+        toggle.widthAnchor.constraint(equalToConstant: toggle.intrinsicContentSize.width + 24).isActive = true
         toggle.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
         statusLabel.font = .systemFont(ofSize: 11)
@@ -271,10 +286,27 @@ final class PrompterFollowControls: NSObject {
         applyTint(tint)
     }
 
+    /// Off: outlined in the bar's own ink, which the backdrop picks to read
+    /// on itself. On: filled with the accent, white on top.
     func applyTint(_ color: NSColor) {
         tint = color
-        toggle.contentTintColor = isOn ? .controlAccentColor : color
+        let ink: NSColor = isOn ? .white : color
+        toggle.contentTintColor = ink
+        // A toggle button shows its alternate title while on.
+        toggle.attributedTitle = Self.title(color: ink)
+        toggle.attributedAlternateTitle = Self.title(color: ink)
+        toggle.layer?.backgroundColor = isOn ? NSColor.controlAccentColor.cgColor : NSColor.clear.cgColor
+        toggle.layer?.borderColor = (isOn ? NSColor.controlAccentColor : color.withAlphaComponent(0.55)).cgColor
         statusLabel.textColor = color.withAlphaComponent(0.7)
+    }
+
+    private static func title(color: NSColor) -> NSAttributedString {
+        // The leading space is the gap between icon and word once the two
+        // hug as one group.
+        NSAttributedString(string: " Follow voice", attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: color
+        ])
     }
 
     func update(status: PrompterVoiceFollow.Status, language: ScriptLanguage) {
