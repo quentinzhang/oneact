@@ -15,20 +15,22 @@ OneAct is an open-source, native Mac recorder. Compose your video as you record:
 | Camera | Screen + Camera | With Teleprompter |
 | --- | --- | --- |
 | [![Camera preview](website/assets/demo-camera.png)](website/assets/demo-camera.png) | [![Screen and camera preview](website/assets/hero-demo.png)](website/assets/hero-demo.png) | [![Teleprompter preview](website/assets/demo-teleprompter.png)](website/assets/demo-teleprompter.png) |
-| A personal message, a lesson, a thought worth sharing. | Bring your screen into the story when a demonstration helps. | Keep your next thought close, outside the recorded video. |
+| A personal message, a lesson, a thought worth sharing. | Bring your screen into the story when a demonstration helps. | Your script follows your voice and stays out of the video. |
 
 [Switch between the three previews on the website](https://quentinzhang.github.io/oneact/#demo). The teleprompter works with either Camera or Screen + Camera.
 
 ## Features
 
 - **What you see is what you save** — Your canvas is composed live. Framing, backgrounds, and camera placement are already part of the saved video.
-- **Pause and resume** — Take a moment, reframe, and continue in the same recording. Paused time stays out of the video.
-- **Keep your words close** — A built-in teleprompter holds your script above the canvas, with English and Chinese pacing and a countdown to settle in. Your script stays out of the video.
+- **Press Space to pause** — Take a moment, reframe, and press Space again to continue in the same recording. ⌥⌘P works from any app. Paused time stays out of the video.
+- **A teleprompter that keeps up with you** — Your script sits above the canvas and stays out of the video. Turn on Follow voice and it scrolls as you speak and waits when you pause or go off script, using on-device speech recognition. Or set a steady pace for English or Chinese, with a countdown to settle in.
 - **Share your screen when the story calls for it** — Bring a display, app, or window into a lesson, walkthrough, or product demo, with an optional camera overlay.
 - **Make the shot yours** — Landscape, portrait, and square canvases; Fit, Fill, and Blur layouts; draggable picture-in-picture; person cutout, custom colors, and software zoom.
+- **A gentle touch-up** — Add light, warmth, and skin smoothing to the camera, live in both the preview and the file. No face reshaping.
 - **Your voice, in the mix** — Choose a microphone, add system audio, or record computer audio on its own.
+- **Ready the moment you stop** — Recording starts as soon as you press Record and saves to Movies/OneAct, or a folder you choose. When you stop, a card lets you play the take back, rename it, drag it into another app, or discard it and retake.
 - **A file ready for what comes next** — Save MOV files with AAC audio. Choose H.264 for everyday sharing or ProRes 422 for further editing.
-- **Made on your Mac** — No account required. Recording, scripts, and person segmentation stay on your Mac. Version checks connect to GitHub.
+- **Made on your Mac** — No account required. Recording, scripts, speech recognition, and person segmentation stay on your Mac. Version checks connect to GitHub.
 
 ## Download and install
 
@@ -74,6 +76,7 @@ These checks cover compositing, audio/video writing, pause and resume, and color
 - OneAct is early-stage software. Make a short test recording and check its audio and picture before an important session.
 - Camera-only output is limited by the actual input resolution, crop, and zoom. Enlarging the output cannot create new source detail.
 - ProRes uses 10-bit 4:2:2 encoding, but the current compositing buffer is 8-bit BGRA. HDR and RAW recording are not supported.
+- Follow voice works with English and Chinese scripts and needs macOS's on-device speech recognition. When it is unavailable, the script scrolls at the speed you set.
 - The teleprompter window is marked as non-shareable. Verify its behavior with your macOS version and any third-party screen-sharing software.
 
 ## Contributing
