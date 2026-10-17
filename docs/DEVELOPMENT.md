@@ -81,6 +81,7 @@ v0.14 在 Screen + Camera 模式下新增摄像头画中画样式：Rectangle（
 - 启动时若已有同 bundle id 的实例在运行，激活该实例并退出自己，避免两个副本共用同一份偏好与提词稿互相覆盖
 - 提词稿仅在用户实际写入时落盘；占位说明文字与离屏诊断都不会写入 Application Support
 - 提词器为预览舞台顶部的融合浮层：实现为主窗口的无边框子窗口（贴合顶部、随移动/缩放同步），因此可携带 `sharingType = .none`——脚本不会出现在任何屏幕录制里（本 App 自己的合成录制、第三方会议共享均不可见）；字号 22–60pt、语速为乌龟→兔子滑杆（60–700 词当量/分，以自然语速为中点的两段线性映射；CJK 按 1.7 字 = 1 词当量折算，中英文同一档位语速一致；按真实经过时间积分，不受主线程负载影响），开始滚动有约 2.5 秒缓起、列宽上限 620pt、文字上下渐隐；幕布提供 Graphite / Midnight / Paper 三种预设，文字与控件颜色随幕布适配；脚本存在 Application Support/OneAct/script.txt
+- `--capturable-prompter` 仅本次启动生效（不写入偏好）：提词浮层改用系统默认的 `sharingType = .readOnly`，QuickTime、OBS 等录屏工具和会议共享都能看到脚本，用于拍摄 OneAct 自己的演示视频。OneAct 已在运行时，`open` 只会激活旧实例而不会传入参数，需先退出再用 `open -a OneAct --args --capturable-prompter`（本地构建为 `open build/OneAct.app --args --capturable-prompter`）启动。此时演示 Screen + Camera，屏幕源应选具体窗口或另一块显示器，不要选 OneAct 所在的整块屏幕，以免把 OneAct 自己连同提词器录进成片
 - 提词器打开时录制前插入 3-2-1 倒计时（预览区居中显示），倒计时结束后开始录制并同步开始滚动；停止录制时停止滚动
 - 提词器「跟随语音」：本机语音识别追踪朗读位置，滚动跟着说话走，停顿即停、临场发挥原地等待；详见下文「提词器跟随语音」
 - `--layout-report <path.png> [--screen-mode] [--min-size] [--prompter] [--cutout]` 离屏渲染主界面并输出 PNG，无需摄像头/麦克风授权即可检查布局，并打印录制菜单内容与 `OVERLAY_DECK`（当前画中画样式、ZOOM 与 FLIP 是否折叠、SIZE 区间）；带 `--prompter` 时另外渲染提词浮层、打印其 sharingType / 子窗口关系，并走一遍就地编辑的 begin/commit 状态循环；`--cutout` 与 `--screen-mode` 同用可检查抠像下折叠掉 Zoom 行后的版面；`--saved-card [--renaming]` 渲染录制后的卡片（示例文件不存在，不触碰磁盘），打印 `SAVED_CARD`（位置是否在舞台内、布局是否有歧义、各按钮是否被压缩）

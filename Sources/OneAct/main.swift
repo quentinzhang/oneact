@@ -1617,8 +1617,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingMenu: NSMenu?
     private var spacePauseMonitor: Any?
     // Layout fixtures must neither read nor overwrite the user's saved script.
+    // --capturable-prompter applies to this launch only and is never saved.
     private let teleprompter = TeleprompterController(
-        persistsScript: CommandLine.arguments.dropFirst().first != "--layout-report"
+        persistsScript: CommandLine.arguments.dropFirst().first != "--layout-report",
+        capturable: CommandLine.arguments.contains("--capturable-prompter")
     )
     private var cameraOrigin: CGPoint?
     private var cameraOverlayScale: CGFloat = 1
@@ -3884,7 +3886,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Renders the teleprompter panel off-screen and reports the window
     /// properties that keep it out of recordings.
     private func writePrompterReport(outputPath: String) {
-        guard let panel = NSApp.windows.first(where: { $0.sharingType == .none }),
+        guard let panel = teleprompter.overlayWindowForDiagnostics,
               let contentView = panel.contentView else {
             print("PROMPTER_REPORT panel missing")
             return
@@ -4218,7 +4220,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 // The prompter is a separate, non-shareable child window.
                 // Render its real AppKit view into the website fixture only;
                 // the recording compositor never includes this overlay.
-                guard let panel = window.childWindows?.first(where: { $0.sharingType == .none }),
+                guard let panel = teleprompter.overlayWindowForDiagnostics,
                       let panelView = panel.contentView else {
                     fputs("LAYOUT_REPORT_FAILED: demo teleprompter is missing.\n", stderr)
                     Darwin.exit(1)
